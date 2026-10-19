@@ -3249,15 +3249,41 @@ impl<M: TextEngine> Core<M> {
             return inserted;
         }
         let same_layout = ctx.text.layout_eq(&text);
+        // A color change reaches the platform through the mount item, but it
+        // does not move a glyph: the layout is kept (a price turning red every
+        // frame must not re-typeset). Typesetting state still embeds the
+        // colors, so it is dropped either way.
+        let same_decoration = ctx.text.decoration_only_eq(&text);
         ctx.text = Arc::new(text);
         // Platform typesetting state embeds colors too: always rebuild it.
         ctx.prepared = None;
-        ctx.laid_out = None;
         if !same_layout {
+            ctx.laid_out = None;
             ctx.layout_hash = ctx.text.layout_hash();
             ctx.cache = None;
             self.layout.mark_dirty(layout).expect("taffy dirty");
             self.needs_layout = true;
+        } else if !same_decoration {
+            // Same glyph positions: taffy has nothing to do, and the text is
+            // not typeset again — but the mount item still carries the new
+            // colors, so the platform repaints the runs it already has.
+            // (`flush_text` only runs on a turn that laid out, so emit here.)
+            if let Some((content, laid_out)) = ctx.laid_out.clone() {
+                let text = ctx.text.clone();
+                let id = self.nodes[key as usize].id;
+                self.mount.push(MountItem::Text {
+                    id,
+                    text,
+                    layout: laid_out,
+                    content,
+                });
+            } else {
+                // Never laid out yet: it will be, with these colors.
+                self.mark(key, dirty::TEXT_MOUNT);
+            }
+            return true;
+        } else {
+            ctx.layout_hash = ctx.text.layout_hash();
         }
         true
     }

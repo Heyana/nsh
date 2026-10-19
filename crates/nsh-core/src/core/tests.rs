@@ -725,7 +725,77 @@ fn color_change_skips_layout_and_identical_texts_share_measurements() {
         first_measures,
         "no re-measure"
     );
-    assert_eq!(c.text_engine.layouts.get(), 4);
+    // A color does not move a glyph: the block keeps the layout it had.
+    assert_eq!(c.text_engine.layouts.get(), 3);
+}
+
+/// A color change alone does not move a glyph: the layout is reused and only
+/// the mount item is emitted. Re-typesetting it here is what made the web
+/// backend replace every `<span>` of the block (a `PlainTextNode` each) on
+/// every frame a color changed — heaps full of detached text nodes.
+#[test]
+fn color_only_change_reuses_the_layout() {
+    let mut c = core();
+    apply(
+        &mut c,
+        vec![
+            Op::Create {
+                id: 10,
+                tag: Tag::Text,
+            },
+            Op::CreateText {
+                id: 11,
+                text: "42.10".into(),
+            },
+            Op::Insert {
+                parent: 10,
+                child: 11,
+                before: None,
+            },
+            Op::Insert {
+                parent: ROOT_ID,
+                child: 10,
+                before: None,
+            },
+        ],
+    );
+    c.commit().unwrap();
+    // A first color change lays the block out once (its style settles);
+    // the baseline is taken after it.
+    c.apply(style_op(10, &[("color", StyleValue::Str("#0000ff"))]))
+        .unwrap();
+    c.commit();
+    let layouts = c.text_engine.layouts.get();
+
+    c.apply(style_op(10, &[("color", StyleValue::Str("#ff0000"))]))
+        .unwrap();
+    let batch = c.commit().unwrap();
+    let emitted = batch
+        .items
+        .iter()
+        .find_map(|i| match i {
+            MountItem::Text { id: 10, text, .. } => Some(text.spans[0].style.color),
+            _ => None,
+        });
+    assert_eq!(
+        emitted,
+        Some(crate::ui::rgb(0xff0000)),
+        "the new color reaches the platform"
+    );
+    assert_eq!(
+        c.text_engine.layouts.get(),
+        layouts,
+        "same glyphs: no re-typeset"
+    );
+
+    // A real text change still lays out again.
+    c.apply(Op::SetText {
+        id: 11,
+        text: "42.11".into(),
+    })
+    .unwrap();
+    c.commit().unwrap();
+    assert_eq!(c.text_engine.layouts.get(), layouts + 1);
 }
 
 #[test]

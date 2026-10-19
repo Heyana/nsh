@@ -288,6 +288,28 @@ impl AttributedText {
                 .all(|(a, b)| a.start == b.start && a.end == b.end && a.style.layout_eq(&b.style))
     }
 
+    /// True if both texts differ only in decorative attributes: the same
+    /// layout (`layout_eq`) with different spans' colors or decorations.
+    ///
+    /// The platform typesetting state (and, on platforms that emit one,
+    /// the whole `Text` mount item) is keyed by the full style, so a color
+    /// change has to reach the platform. Rebuilding the layout for it,
+    /// though, re-typesets text whose glyphs did not move — which the web
+    /// backend turns into a fresh set of `<span>`s every frame a price
+    /// changes color.
+    pub fn decoration_only_eq(&self, other: &Self) -> bool {
+        self.layout_eq(other)
+            && self.spans.iter().zip(&other.spans).all(|(a, b)| {
+                let (x, y) = (&a.style, &b.style);
+                x.color == y.color
+                    && x.decoration == y.decoration
+                    && x.decoration_color == y.decoration_color
+                    && x.decoration_style == y.decoration_style
+                    && x.decoration_thickness == y.decoration_thickness
+                    && x.underline_offset == y.underline_offset
+            })
+    }
+
     /// A 64-bit hash of everything [`AttributedText::layout_eq`] compares.
     /// SipHash (not Fx): it keys a cache without a full equality check.
     pub fn layout_hash(&self) -> u64 {

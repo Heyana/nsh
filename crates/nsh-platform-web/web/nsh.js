@@ -1241,20 +1241,34 @@ class Player {
   op_t([, id, cx, cy, , , runs, styles, selectable, selection]) {
     const el = this.view(id);
     if (!el) return;
-    const frag = document.createDocumentFragment();
-    for (const [x, y, text, style, after] of runs) {
-      const span = document.createElement("span");
+    // The same runs as last time: update them in place. Replacing every span
+    // on each mount leaves the old ones to the garbage collector — a table
+    // whose cells change color every frame piles up detached text nodes.
+    const old = el.querySelectorAll(":scope > .nsh-run");
+    const reuse = old.length === runs.length;
+    const frag = reuse ? null : document.createDocumentFragment();
+    for (let i = 0; i < runs.length; i++) {
+      const [x, y, text, style, after] = runs[i];
       const name = this.styleClass(styles[style]);
-      span.className = name ? `nsh-run ${name}` : "nsh-run";
-      span.style.cssText = `left:${cx + x}px;top:${cy + y}px`;
-      span.textContent = text;
+      const cls = name ? `nsh-run ${name}` : "nsh-run";
+      const pos = `left:${cx + x}px;top:${cy + y}px`;
+      const span = reuse ? old[i] : document.createElement("span");
+      if (span.className !== cls) span.className = cls;
+      // `cssText` reads back normalized, so compare against what was written.
+      if (span._pos !== pos) {
+        span._pos = pos;
+        span.style.cssText = pos;
+      }
+      if (span.textContent !== text) span.textContent = text;
       // The line's break, for copying (`copy`).
       if (after) span._after = after;
       if (el._animation.color) span.style.color = el._animation.color;
-      frag.append(span);
+      if (!reuse) frag.append(span);
     }
-    for (const span of [...el.querySelectorAll(":scope > .nsh-run")]) span.remove();
-    el.insertBefore(frag, el.firstChild);
+    if (!reuse) {
+      for (const span of old) span.remove();
+      el.insertBefore(frag, el.firstChild);
+    }
     el.classList.toggle("nsh-selectable", !!selectable);
     el.classList.toggle("nsh-autoselect", selectable == null);
     // Its `--nsh-selection`.
