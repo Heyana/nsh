@@ -906,6 +906,8 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
             });
         }
+        // TODO: GPUI notifications.
+        Command::Notify { .. } => {}
         Command::ReadClipboard { id, has_only } => {
             let (key, id, has_only) = (surface.key(), *id, *has_only);
             crate::rt::on_app(move |cx| {

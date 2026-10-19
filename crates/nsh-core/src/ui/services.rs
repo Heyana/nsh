@@ -131,6 +131,11 @@ pub(crate) fn set_clipboard(text: String) -> Action {
     Action::Command(ROOT_ID, Command::SetClipboard(text))
 }
 
+/// Shows a system notification with `title` and `body`.
+pub(crate) fn notify(title: String, body: String) -> Action {
+    Action::Command(ROOT_ID, Command::Notify { title, body })
+}
+
 /// The text on the system clipboard (`""` when it holds none).
 pub(crate) fn clipboard_string() -> (Answer<String>, Action) {
     let (answer, slot) = Answer::new();

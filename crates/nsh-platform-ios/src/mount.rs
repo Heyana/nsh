@@ -1098,6 +1098,8 @@ impl Mounter {
             (Command::Announce(text), _) => crate::system::announce(&text),
             (Command::ImageInfo { id, uri }, _) => self.images.info(id, &uri),
             (Command::SetClipboard(text), _) => crate::system::set_clipboard(&text),
+            // TODO: iOS local notifications via UNUserNotificationCenter.
+            (Command::Notify { .. }, _) => {}
             (Command::ReadClipboard { id, has_only }, _) => {
                 let (has, text) = crate::system::read_clipboard(has_only);
                 let mut fields = vec![

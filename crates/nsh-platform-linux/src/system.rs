@@ -482,6 +482,15 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
                 display.clipboard().set_text(text);
             }
         }
+        Command::Notify { title, body } => {
+            if let Err(e) = notify_rust::Notification::new()
+                .summary(title)
+                .body(body)
+                .show()
+            {
+                log::debug!("linux: cannot show notification: {e}");
+            }
+        }
         Command::ReadClipboard { id, has_only } => read_clipboard(surface, *id, *has_only),
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {

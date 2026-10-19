@@ -434,6 +434,13 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
                 log::debug!("windows: cannot set the clipboard");
             }
         }
+        Command::Notify { title, body } => {
+            // TODO: WinRT ToastNotificationManager requires an AppUserModelID
+            // registered via a Start Menu shortcut, plus the
+            // Windows_UI_Notifications and Windows_Data_Xml_Dom features.
+            // Needs implementation and device testing on Windows.
+            log::debug!("windows: notification not implemented: {title}: {body}");
+        }
         Command::ReadClipboard { id, has_only } => {
             let has = clipboard_has_text();
             let text = if has && !*has_only {

@@ -557,6 +557,11 @@ pub(crate) fn encode(batch: MountBatch) -> Encoded {
                         e.int(22);
                         e.string(text);
                     }
+                    Command::Notify { title, body } => {
+                        e.int(24);
+                        e.string(title);
+                        e.string(body);
+                    }
                     Command::ReadClipboard { id, has_only } => {
                         e.int(23);
                         e.int(id as i32);

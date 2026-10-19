@@ -235,6 +235,13 @@ impl ModuleCx {
             .push(super::services::set_clipboard(text.into()));
     }
 
+    /// Shows a system notification with `title` and `body`
+    /// (TS: `notify` from `nsh/notification`).
+    pub fn notify(&mut self, title: impl Into<String>, body: impl Into<String>) {
+        self.actions
+            .push(super::services::notify(title.into(), body.into()));
+    }
+
     /// Shows `message` at the bottom of the screen (Android's toasts);
     /// nothing happens elsewhere.
     pub fn toast(&mut self, message: impl Into<String>, duration: super::ToastDuration) {

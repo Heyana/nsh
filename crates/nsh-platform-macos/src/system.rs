@@ -373,6 +373,24 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
             pasteboard
                 .setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString });
         }
+        Command::Notify { title, body } => {
+            use objc2_user_notifications::{
+                UNMutableNotificationContent, UNNotificationRequest, UNUserNotificationCenter,
+            };
+            let center = UNUserNotificationCenter::currentNotificationCenter();
+            let content = UNMutableNotificationContent::new();
+            content.setTitle(&NSString::from_str(title));
+            content.setBody(&NSString::from_str(body));
+            let request = UNNotificationRequest::requestWithIdentifier_content_trigger(
+                &NSString::from_str(&format!("nsh-{}", std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis())
+                    .unwrap_or(0))),
+                &content,
+                None,
+            );
+            center.addNotificationRequest_withCompletionHandler(&request, None);
+        }
         Command::ReadClipboard { id, has_only } => read_clipboard(surface, *id, *has_only),
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {

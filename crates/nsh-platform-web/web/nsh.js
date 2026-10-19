@@ -3060,6 +3060,18 @@ class Player {
         break;
       case "seek": if (el?._video) el._video.currentTime = args[0]; break;
       case "setClipboard": this.writeClipboard(args[0]); break;
+      case "notify":
+        // The browser's Notification API (needs permission; falls back to console).
+        if ("Notification" in window) {
+          if (Notification.permission === "granted") {
+            new Notification(args[0], { body: args[1] });
+          } else if (Notification.permission !== "denied") {
+            Notification.requestPermission().then((p) => {
+              if (p === "granted") new Notification(args[0], { body: args[1] });
+            });
+          }
+        }
+        break;
       case "readClipboard": this.readClipboard(args[0], args[1]); break;
       case "imageInfo": this.imageInfo(args[0], args[1]); break;
       case "statusBar": this.setThemeColor(args[0]); break;

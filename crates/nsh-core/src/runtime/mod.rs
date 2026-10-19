@@ -14,6 +14,7 @@ mod android;
 mod clipboard;
 mod desktop;
 mod image;
+mod notification;
 
 /// The runtime's Rust modules, one registry per JS module (its
 /// [`Registry::namespace`]: `nsh/android`).
@@ -33,6 +34,8 @@ pub fn registries() -> &'static [Registry] {
         clipboard.module::<clipboard::Clipboard>();
         let mut desktop = Registry::runtime("nsh/desktop");
         desktop.module::<desktop::Window>();
-        vec![android, accessibility, image, clipboard, desktop]
+        let mut notification = Registry::runtime("nsh/notification");
+        notification.module::<notification::Notification>();
+        vec![android, accessibility, image, clipboard, desktop, notification]
     })
 }

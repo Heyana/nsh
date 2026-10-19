@@ -993,6 +993,13 @@ pub enum Command {
     },
     /// Put `text` on the system clipboard (on the root; `Clipboard.setString`).
     SetClipboard(String),
+    /// Show a system notification (on the root; `notify` from `nsh/notification`).
+    Notify {
+        /// The notification's title.
+        title: String,
+        /// The notification's body text.
+        body: String,
+    },
     /// Read the system clipboard and report it as [`EventKind::Clipboard`]
     /// `id` (on the root): `has` and, unless `has_only`, `text`. Asking
     /// only whether it holds text does not read it (no iOS paste notice).
