@@ -3281,12 +3281,15 @@ impl<M: TextEngine> Core<M> {
             // tree: a price that grows by a digit inside a fixed column
             // re-typesets and repaints but cannot move a box, and asking for
             // that walk is what a ticking table spends its CPU on.
-            if let (Some(before), Some(after)) = (ctx.cache.map(|(_, s)| s), measured) {
-                if after == before {
-                    ctx.layout_hash = ctx.text.layout_hash();
-                    ctx.laid_out = None;
-                    return true;
-                }
+            if let (Some(before), Some(after)) = (ctx.cache.map(|(_, s)| s), measured)
+                && after == before
+            {
+                // Same size: it still typesets and repaints, so its layout is
+                // dropped and the text mounted — only taffy is spared the walk.
+                ctx.layout_hash = ctx.text.layout_hash();
+                ctx.laid_out = None;
+                self.mark(key, dirty::TEXT_MOUNT);
+                return true;
             }
             ctx.laid_out = None;
             ctx.layout_hash = ctx.text.layout_hash();
