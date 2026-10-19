@@ -75,7 +75,7 @@ struct AxState {
     label: Option<String>,
     /// The value and its description, as one comparable pair: a range's
     /// `text` changes without `now` changing.
-    value: (Option<String>, Option<String>),
+    value: (ValueKind, Option<String>),
     enabled: bool,
     selected: bool,
     expanded: bool,
@@ -401,14 +401,29 @@ fn apply(view: &NSView, spec: &Spec, was: &AxState) -> AxState {
     }
 }
 
-/// The value as it compares: the numeric or textual part, without the
-/// description (`apply` compares the description next to it).
-fn value_kind(v: &Value) -> Option<String> {
+/// The value as it compares: which kind of value AppKit was given, and its
+/// contents — without the description (`apply` compares that next to it).
+///
+/// The kind matters as much as the contents: a checkbox's value must be an
+/// `NSNumber`, and `accessibilityValue={{ text: "1" }}` on a view that later
+/// becomes `checked` keeps the same contents while changing what AppKit must
+/// be handed. Comparing the contents alone left the `NSString` in place.
+#[derive(Debug, Clone, PartialEq, Default)]
+enum ValueKind {
+    #[default]
+    None,
+    Text(String),
+    Checked(i32),
+    Range(Option<u64>),
+}
+
+fn value_kind(v: &Value) -> ValueKind {
     match v {
-        Value::None => None,
-        Value::Text(t) => Some(t.clone()),
-        Value::Checked(c) => Some(c.to_string()),
-        Value::Range { now, .. } => now.map(|n| n.to_string()),
+        Value::None => ValueKind::None,
+        Value::Text(t) => ValueKind::Text(t.clone()),
+        Value::Checked(c) => ValueKind::Checked(*c),
+        // The bits, so NaN compares equal to itself.
+        Value::Range { now, .. } => ValueKind::Range(now.map(|n| n.to_bits() as u64)),
     }
 }
 
@@ -693,4 +708,38 @@ mod tests {
         let s = spec_for(&button, ViewKind::View, false, None);
         assert_eq!(s.value, Value::Text("3 of 10".into()));
     }
+    /// The reviewer's case: `accessibilityValue={{ text: "1" }}` on a view
+    /// that later becomes checked. The contents are `1` both times; what
+    /// AppKit must be handed changes from an NSString to an NSNumber.
+    #[test]
+    fn a_checkbox_value_compared_by_kind_not_contents() {
+        let text_value = ValueKind::Text("1".into());
+        let checked = ValueKind::Checked(1);
+        assert_ne!(text_value, checked, "a checkbox's number must replace the string");
+
+        // The same contents on the same kind is unchanged.
+        assert_eq!(ValueKind::Text("1".into()), ValueKind::Text("1".into()));
+        assert_eq!(ValueKind::Checked(1), ValueKind::Checked(1));
+    }
+
+    /// A hidden container's `element` is false either way, so `hidden` has to
+    /// be compared on its own: mounting hidden and then unhiding must reach
+    /// AppKit, or its children stay out of reach.
+    #[test]
+    fn a_hidden_change_reaches_appkit_without_a_role_change() {
+        let hidden = AxState {
+            element: false,
+            hidden: true,
+            role: Some(Ax::Group as u8),
+            ..Default::default()
+        };
+        let shown = AxState {
+            hidden: false,
+            ..hidden.clone()
+        };
+        assert_eq!(hidden.element, shown.element, "an accessible=false container is never an element");
+        assert_eq!(hidden.role, shown.role, "and its role does not change");
+        assert_ne!(hidden, shown, "so hidden itself must differ");
+    }
+
 }
