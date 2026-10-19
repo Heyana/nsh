@@ -306,6 +306,10 @@ pub(super) struct Components {
     /// id: their answers.
     clipboard_reads: FxHashMap<u32, ClipboardRead>,
     next_clipboard_read: u32,
+    /// File dialogs (`Dialog.openFile` / `saveFile`), by request id:
+    /// their answers.
+    file_dialogs: FxHashMap<u32, AnswerSlot<Option<Vec<String>>>>,
+    next_file_dialog: u32,
     /// HTTP requests of tasks (`ui::fetch`), by request id: what arrived
     /// so far and the answer.
     fetches: FxHashMap<u32, PendingFetch>,
@@ -380,6 +384,8 @@ impl Default for Components {
             next_image_info: 1,
             clipboard_reads: FxHashMap::default(),
             next_clipboard_read: 1,
+            file_dialogs: FxHashMap::default(),
+            next_file_dialog: 1,
             fetches: FxHashMap::default(),
             fetch_requests: Vec::new(),
             next_fetch: 1,
@@ -3268,6 +3274,15 @@ impl<M: TextEngine> Core<M> {
                     command: Command::ReadClipboard { id, has_only },
                 });
             }
+            Action::FileDialog(kind, slot) => {
+                let id = self.components.next_file_dialog;
+                self.components.next_file_dialog += 1;
+                self.components.file_dialogs.insert(id, slot);
+                let _ = self.apply_op(Op::Command {
+                    id: crate::ROOT_ID,
+                    command: Command::FileDialog { id, kind },
+                });
+            }
         }
     }
 
@@ -3365,6 +3380,13 @@ impl<M: TextEngine> Core<M> {
         }
     }
 
+    /// The answer to file dialog `id`: the chosen paths, `None` on cancel.
+    pub(super) fn answer_file_dialog(&mut self, id: u32, paths: Option<Vec<String>>) {
+        if let Some(answer) = self.components.file_dialogs.remove(&id) {
+            answer.borrow_mut().deliver(paths);
+        }
+    }
+
     /// Events the components handle before anything else: dialog answers
     /// (theirs never reach JS), insets of screens and modals.
     fn platform_event(&mut self, id: NodeId, kind: EventKind, payload: &EventPayload) -> bool {
@@ -3459,6 +3481,29 @@ impl<M: TextEngine> Core<M> {
                     }
                 }
                 self.answer_clipboard(request as u32, text, has);
+                true
+            }
+            EventKind::FileDialog if id == crate::ROOT_ID => {
+                let Some(request) = number("id") else {
+                    return false;
+                };
+                let mut paths: Option<Vec<String>> = None;
+                if let EventPayload::Map(entries) = payload {
+                    for (k, v) in entries {
+                        if *k == "paths" {
+                            match v {
+                                // Paths joined by `\n` (paths cannot contain
+                                // newlines); `Null` means the user cancelled.
+                                crate::PayloadValue::Str(s) => {
+                                    paths = Some(s.split('\n').map(str::to_owned).collect())
+                                }
+                                crate::PayloadValue::Null => paths = None,
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+                self.answer_file_dialog(request as u32, paths);
                 true
             }
             EventKind::Insets => {

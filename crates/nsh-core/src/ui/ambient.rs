@@ -27,6 +27,7 @@ use super::{
 use crate::{
     Command, Dialog, EdgeInsets, LayoutAnimation, NodeId, Size, StatusBarSetting,
     canvas::CanvasFont,
+    desktop::FileDialogOptions,
     platform::{Appearance, Idiom, Locale, Os},
     style::Color,
     time::Instant,
@@ -377,6 +378,22 @@ pub fn clipboard_string() -> Answer<String> {
 /// Whether the system clipboard holds text (TS: `Clipboard.hasString`).
 pub fn clipboard_has_string() -> Answer<bool> {
     let (answer, action) = super::services::clipboard_has_string();
+    act(action);
+    answer
+}
+
+/// Shows the system open-file dialog (TS: `Dialog.openFile`); the chosen
+/// paths, or `None` when the user cancels.
+pub fn dialog_open_file(options: FileDialogOptions) -> Answer<Option<Vec<String>>> {
+    let (answer, action) = super::services::dialog_open_file(options);
+    act(action);
+    answer
+}
+
+/// Shows the system save-file dialog (TS: `Dialog.saveFile`); the chosen
+/// path, or `None` when the user cancels.
+pub fn dialog_save_file(options: FileDialogOptions) -> Answer<Option<Vec<String>>> {
+    let (answer, action) = super::services::dialog_save_file(options);
     act(action);
     answer
 }

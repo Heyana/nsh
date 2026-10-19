@@ -52,7 +52,7 @@ use std::{
 use gtk4::{self as gtk, gdk, gio, glib, prelude::*};
 use nsh_core::{
     Command, Dialog, DialogButtonStyle, EventKind, EventPayload, NodeId, PayloadValue, ROOT_ID,
-    Rect,
+    Rect, desktop::FileDialogKind,
 };
 use nsh_engine::{ColorScheme, Environment, Insets, Locale};
 
@@ -483,6 +483,7 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
             }
         }
         Command::ReadClipboard { id, has_only } => read_clipboard(surface, *id, *has_only),
+        Command::FileDialog { id, kind } => file_dialog(surface, *id, kind),
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {
             // Closing destroys the window, whose handler stops the surface:
@@ -1001,6 +1002,98 @@ fn read_clipboard(surface: &Rc<Surface>, id: u32, has_only: bool) {
             answer(&surface, text.is_some(), text);
         }
     });
+}
+
+/// `Dialog.openFile` / `Dialog.saveFile`: shows the system's file picker
+/// (`GtkFileChooserNative`, async) and reports the chosen paths as
+/// [`EventKind::FileDialog`] `id`.
+fn file_dialog(surface: &Rc<Surface>, id: u32, kind: &FileDialogKind) {
+    let answer = move |surface: &Surface, paths: Option<Vec<String>>| {
+        let mut fields = vec![("id", PayloadValue::Number(id as f64))];
+        match paths {
+            Some(paths) => fields.push(("paths", PayloadValue::Str(paths.join("\n")))),
+            None => fields.push(("paths", PayloadValue::Null)),
+        }
+        surface.event(ROOT_ID, EventKind::FileDialog, EventPayload::Map(fields));
+    };
+    // The transient parent: the window hosting this surface, if any.
+    let parent = surface.root.root().and_downcast::<gtk::Window>();
+    let (options, is_save) = match kind {
+        FileDialogKind::Open(o) => (o, false),
+        FileDialogKind::Save(o) => (o, true),
+    };
+    let action = if is_save {
+        gtk::FileChooserAction::Save
+    } else {
+        gtk::FileChooserAction::Open
+    };
+    let title = options
+        .title
+        .as_deref()
+        .unwrap_or(if is_save { "Save file" } else { "Open file" });
+    let chooser = gtk::FileChooserNative::new(
+        Some(title),
+        parent.as_ref(),
+        action,
+        Some(if is_save { "Save" } else { "Open" }),
+        Some("Cancel"),
+    );
+    chooser.set_modal(true);
+    if let Some(path) = options.default_path.as_deref() {
+        let _ = chooser.set_current_folder(Some(&gio::File::for_path(path)));
+    }
+    if is_save {
+        if let Some(name) = options.default_name.as_deref() {
+            chooser.set_current_name(name);
+        }
+    } else if options.multiple.unwrap_or(false) {
+        chooser.set_select_multiple(true);
+    }
+    // Filters: `*.png` or `png` → a `FileFilter` per pattern.
+    if let Some(filters) = options.filters.as_deref() {
+        for pattern in filters {
+            let filter = gtk::FileFilter::new();
+            // Accept both `*.png` and `png`.
+            let pattern = pattern.strip_prefix("*.").unwrap_or(pattern);
+            let pattern = if pattern.contains('.') || pattern.contains('*') {
+                pattern.to_owned()
+            } else {
+                format!("*.{pattern}")
+            };
+            filter.add_pattern(&pattern);
+            chooser.add_filter(&filter);
+        }
+    }
+    let surface = Rc::downgrade(surface);
+    chooser.connect_response(move |chooser, response| {
+        let paths = if response == gtk::ResponseType::Accept {
+            if is_save {
+                chooser
+                    .file()
+                    .and_then(|f| f.path())
+                    .map(|p| vec![p.to_string_lossy().into_owned()])
+            } else {
+                let files = chooser.files();
+                let mut paths = Vec::new();
+                let mut i = 0;
+                while let Some(file) = files.item(i) {
+                    if let Some(path) = file.downcast_ref::<gio::File>().and_then(|f| f.path()) {
+                        paths.push(path.to_string_lossy().into_owned());
+                    }
+                    i += 1;
+                }
+                // `Accept` with no files is still a choice (empty).
+                Some(paths)
+            }
+        } else {
+            None
+        };
+        chooser.destroy();
+        if let Some(surface) = surface.upgrade() {
+            answer(&surface, paths);
+        }
+    });
+    chooser.show();
 }
 
 /// `MountItem::Appearance`: the app forces light or dark (or follows the

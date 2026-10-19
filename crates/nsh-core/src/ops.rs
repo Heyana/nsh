@@ -177,6 +177,7 @@ events! {
     FileDragEnter = "onFileDragEnter": "A local file drag entered an eligible desktop drop destination.",
     FileDragLeave = "onFileDragLeave": "A local file drag left its desktop drop destination.",
     FileDrop = "onFileDrop": "Local files were dropped (payload: [`EventPayload::FileDrop`]).",
+    FileDialog = "onFileDialog": "A file dialog closed (root only; desktops; payload: `id`, `paths`: the chosen paths, or null on cancel).",
 }
 
 /// What an input holds, for the system's autofill and suggestions
@@ -1001,6 +1002,15 @@ pub enum Command {
         id: u32,
         /// Only whether it holds text (`Clipboard.hasString`).
         has_only: bool,
+    },
+    /// Show the system file picker and report the chosen paths as
+    /// [`EventKind::FileDialog`] `id` (on the root): `paths` (`null` on
+    /// cancel). Desktop-only; elsewhere the answer is `null` at once.
+    FileDialog {
+        /// The request.
+        id: u32,
+        /// Open or save.
+        kind: crate::desktop::FileDialogKind,
     },
     /// A desktop command (on the root; `nsh/desktop`): the window, its
     /// title bar, menus. Mobile platforms ignore it.

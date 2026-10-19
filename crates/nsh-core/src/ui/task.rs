@@ -24,7 +24,9 @@ use std::{
 use rustc_hash::FxHashMap;
 use tokio::runtime::Handle;
 
-use crate::{Command, Dialog, NodeId, ROOT_ID, StatusBarSetting, time::Instant};
+use crate::{
+    Command, Dialog, NodeId, ROOT_ID, StatusBarSetting, desktop::FileDialogKind, time::Instant,
+};
 
 type LocalFuture = Pin<Box<dyn Future<Output = ()>>>;
 
@@ -75,6 +77,9 @@ pub(crate) enum Action {
     ),
     /// Reads the system clipboard; the answer resolves the slot.
     ReadClipboard(ClipboardRead),
+    /// Shows the system file picker; the chosen paths (or `None` on
+    /// cancel) resolve the slot.
+    FileDialog(FileDialogKind, AnswerSlot<Option<Vec<String>>>),
     /// An operation on the native animation graph.
     Animation(nsh_animation::AnimationOp),
     /// Starts an animation; its end resolves the slot.

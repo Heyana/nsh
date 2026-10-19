@@ -576,6 +576,31 @@ impl MenuItem {
     }
 }
 
+/// Which file dialog to show.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileDialogKind {
+    /// Open-file dialog.
+    Open(FileDialogOptions),
+    /// Save-file dialog.
+    Save(FileDialogOptions),
+}
+
+/// Options for the file dialogs (`Dialog.openFile`, `Dialog.saveFile`).
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
+pub struct FileDialogOptions {
+    /// The dialog's title.
+    pub title: Option<String>,
+    /// File filters: e.g. `["*.png", "*.jpg"]` or `["png", "jpg"]`.
+    /// The platform shows only matching files.
+    pub filters: Option<Vec<String>>,
+    /// Allow selecting multiple files (`openFile` only).
+    pub multiple: Option<bool>,
+    /// The directory the dialog opens in.
+    pub default_path: Option<String>,
+    /// The suggested file name (`saveFile` only).
+    pub default_name: Option<String>,
+}
+
 /// A desktop command (on the root).
 #[derive(Debug, Clone, PartialEq)]
 pub enum DesktopCommand {

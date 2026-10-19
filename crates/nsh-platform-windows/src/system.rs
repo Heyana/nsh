@@ -52,7 +52,7 @@ use std::{
 
 use nsh_core::{
     Color, Command, Dialog, DialogButtonStyle, EventKind, EventPayload, NodeId, PayloadValue,
-    ROOT_ID, Rect, platform::Appearance,
+    ROOT_ID, Rect, desktop::FileDialogKind, platform::Appearance,
 };
 use nsh_engine::{ColorScheme, Environment, Insets, Locale};
 use windows::{
@@ -447,6 +447,14 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
                 clipboard_answer(*id, has, text),
             );
         }
+        Command::FileDialog { id, kind } => {
+            let paths = file_dialog(surface, kind);
+            surface.event(
+                ROOT_ID,
+                EventKind::FileDialog,
+                file_dialog_answer(*id, paths),
+            );
+        }
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {
             // Closing destroys the window, whose handler stops the surface:
@@ -482,6 +490,84 @@ fn clipboard_answer(id: u32, has: bool, text: Option<String>) -> EventPayload {
         fields.push(("text", PayloadValue::Str(text)));
     }
     EventPayload::Map(fields)
+}
+
+/// The answer to file dialog `id`: the chosen paths, `null` on cancel.
+fn file_dialog_answer(id: u32, paths: Option<Vec<String>>) -> EventPayload {
+    let mut fields = vec![("id", PayloadValue::Number(id as f64))];
+    match paths {
+        Some(paths) => fields.push(("paths", PayloadValue::Str(paths.join("\n")))),
+        None => fields.push(("paths", PayloadValue::Null)),
+    }
+    EventPayload::Map(fields)
+}
+
+/// `Dialog.openFile` / `Dialog.saveFile`: shows the system's file picker
+/// (`IFileOpenDialog` / `IFileSaveDialog`) and returns the chosen paths.
+///
+/// NOTE: needs device testing — written from Win32 docs, not run.
+fn file_dialog(surface: &Surface, kind: &FileDialogKind) -> Option<Vec<String>> {
+    use windows::Win32::{
+        System::Com::{CLSCTX_ALL, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx},
+        UI::Shell::{
+            CLSID_FileOpenDialog, CLSID_FileSaveDialog, FOS_ALLOWMULTISELECT, IFileDialog,
+            IFileOpenDialog, IFileSaveDialog, SIGDN_FILESYSPATH,
+        },
+    };
+    // SAFETY: COM is initialized on this thread by the platform; the
+    // dialogs are used and released here.
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        let (options, is_save) = match kind {
+            FileDialogKind::Open(o) => (o, false),
+            FileDialogKind::Save(o) => (o, true),
+        };
+        let hwnd = surface.hwnd();
+        if is_save {
+            let dialog: IFileSaveDialog =
+                CoCreateInstance(&CLSID_FileSaveDialog, None, CLSCTX_ALL).ok()?;
+            let dialog: IFileDialog = dialog.cast().ok()?;
+            if let Some(title) = options.title.as_deref() {
+                let _ = dialog.SetTitle(&HSTRING::from(title));
+            }
+            if let Some(name) = options.default_name.as_deref() {
+                let _ = dialog.SetFileName(&HSTRING::from(name));
+            }
+            if dialog.Show(hwnd).is_err() {
+                return None;
+            }
+            let item = dialog.GetResult().ok()?;
+            let path = item.GetDisplayName(SIGDN_FILESYSPATH).ok()?;
+            Some(vec![path.to_string()])
+        } else {
+            let dialog: IFileOpenDialog =
+                CoCreateInstance(&CLSID_FileOpenDialog, None, CLSCTX_ALL).ok()?;
+            let dialog: IFileDialog = dialog.cast().ok()?;
+            if let Some(title) = options.title.as_deref() {
+                let _ = dialog.SetTitle(&HSTRING::from(title));
+            }
+            if options.multiple.unwrap_or(false) {
+                let mut flags = dialog.GetOptions().unwrap_or_default();
+                flags |= FOS_ALLOWMULTISELECT;
+                let _ = dialog.SetOptions(flags);
+            }
+            if dialog.Show(hwnd).is_err() {
+                return None;
+            }
+            let dialog: IFileOpenDialog = dialog.cast().ok()?;
+            let items = dialog.GetResults().ok()?;
+            let count = items.GetCount().ok()?;
+            let mut paths = Vec::new();
+            for i in 0..count {
+                if let Ok(item) = items.GetItemAt(i) {
+                    if let Ok(path) = item.GetDisplayName(SIGDN_FILESYSPATH) {
+                        paths.push(path.to_string());
+                    }
+                }
+            }
+            Some(paths)
+        }
+    }
 }
 
 /// The answer to dialog `id`: the button's index, -1 when dismissed.

@@ -16,6 +16,7 @@ use super::{
 };
 use crate::{
     Command, ROOT_ID,
+    desktop::{FileDialogKind, FileDialogOptions},
     platform::{HttpHead, HttpRequest},
     time::Instant,
 };
@@ -141,6 +142,30 @@ pub(crate) fn clipboard_string() -> (Answer<String>, Action) {
 pub(crate) fn clipboard_has_string() -> (Answer<bool>, Action) {
     let (answer, slot) = Answer::new();
     (answer, Action::ReadClipboard(ClipboardRead::Has(slot)))
+}
+
+/// Shows the system open-file dialog; the chosen paths (`None` on
+/// cancel) resolve the answer.
+pub(crate) fn dialog_open_file(
+    options: FileDialogOptions,
+) -> (Answer<Option<Vec<String>>>, Action) {
+    let (answer, slot) = Answer::new();
+    (
+        answer,
+        Action::FileDialog(FileDialogKind::Open(options), slot),
+    )
+}
+
+/// Shows the system save-file dialog; the chosen path (`None` on
+/// cancel) resolves the answer.
+pub(crate) fn dialog_save_file(
+    options: FileDialogOptions,
+) -> (Answer<Option<Vec<String>>>, Action) {
+    let (answer, slot) = Answer::new();
+    (
+        answer,
+        Action::FileDialog(FileDialogKind::Save(options), slot),
+    )
 }
 
 /// The size of the image at `uri`, its bytes loaded.

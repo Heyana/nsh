@@ -627,6 +627,7 @@ pub const INTERNAL_EVENTS: &[EventKind] = &[
     EventKind::KeyCommand,
     EventKind::Menu,
     EventKind::ViewableItemsChanged,
+    EventKind::FileDialog,
 ];
 
 /// The interfaces of the host props, by the elements their props apply

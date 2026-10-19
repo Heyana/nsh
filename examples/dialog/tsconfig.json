@@ -1,0 +1,1 @@
+{"compilerOptions":{"types":["../../.nsh/types"]},"extends":"../../tsconfig.base.json"}

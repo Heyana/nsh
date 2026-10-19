@@ -44,7 +44,7 @@ use block2::RcBlock;
 use dispatch2::{DispatchQueue, DispatchTime};
 use nsh_core::{
     Command, Dialog, DialogButtonStyle, EventKind, EventPayload, NodeId, PayloadValue, ROOT_ID,
-    Rect,
+    Rect, desktop::FileDialogKind,
 };
 use nsh_engine::{ColorScheme, Environment, Idiom, Insets, Locale, Os};
 use objc2::{
@@ -55,8 +55,9 @@ use objc2::{
 use objc2_app_kit::{
     NSAccessibilityPriorityLevel, NSAlert, NSAlertFirstButtonReturn, NSAlertStyle, NSAppearance,
     NSAppearanceCustomization, NSAppearanceNameAqua, NSAppearanceNameDarkAqua, NSColor, NSFont,
-    NSModalResponse, NSPasteboard, NSPasteboardTypeString, NSResponder, NSScreen, NSTextAlignment,
-    NSTextField, NSView, NSWorkspace, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification,
+    NSModalResponse, NSOpenPanel, NSPasteboard, NSPasteboardTypeString, NSResponder, NSSavePanel,
+    NSScreen, NSTextAlignment, NSTextField, NSView, NSWorkspace,
+    NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification,
 };
 use objc2_core_foundation::{CGPoint, CGSize};
 use objc2_foundation::{
@@ -374,6 +375,7 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
                 .setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString });
         }
         Command::ReadClipboard { id, has_only } => read_clipboard(surface, *id, *has_only),
+        Command::FileDialog { id, kind } => file_dialog(surface, *id, kind),
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {
             if let Some(window) = surface.root.ns().window() {
@@ -767,4 +769,77 @@ fn read_clipboard(surface: &Rc<Surface>, id: u32, has_only: bool) {
         fields.push(("text", PayloadValue::Str(text)));
     }
     surface.event(ROOT_ID, EventKind::Clipboard, EventPayload::Map(fields));
+}
+
+/// `Dialog.openFile` / `Dialog.saveFile`: shows the system's file picker
+/// (`NSOpenPanel` / `NSSavePanel`) and reports the chosen paths as
+/// [`EventKind::FileDialog`] `id`.
+///
+/// NOTE: needs device testing — written from AppKit docs, not run.
+fn file_dialog(surface: &Rc<Surface>, id: u32, kind: &FileDialogKind) {
+    let answer = move |surface: &Surface, paths: Option<Vec<String>>| {
+        let mut fields = vec![("id", PayloadValue::Number(id as f64))];
+        match paths {
+            Some(paths) => fields.push(("paths", PayloadValue::Str(paths.join("\n")))),
+            None => fields.push(("paths", PayloadValue::Null)),
+        }
+        surface.event(ROOT_ID, EventKind::FileDialog, EventPayload::Map(fields));
+    };
+    let (options, is_save) = match kind {
+        FileDialogKind::Open(o) => (o, false),
+        FileDialogKind::Save(o) => (o, true),
+    };
+    // SAFETY: AppKit panels are used from the main thread, which this is.
+    let paths: Option<Vec<String>> = unsafe {
+        if is_save {
+            let panel = NSSavePanel::savePanel();
+            if let Some(title) = options.title.as_deref() {
+                panel.setTitle(Some(&NSString::from_str(title)));
+            }
+            if let Some(name) = options.default_name.as_deref() {
+                panel.setNameFieldStringValue(&NSString::from_str(name));
+            }
+            if let Some(path) = options.default_path.as_deref() {
+                panel.setDirectoryURL(Some(&objc2_foundation::NSURL::fileURLWithPath(
+                    &NSString::from_str(path),
+                )));
+            }
+            // Filters as allowed content types would need UTType mapping;
+            // extensions are matched by name for now.
+            if panel.runModal() == NSModalResponse::NSModalResponseOK {
+                panel
+                    .URL()
+                    .and_then(|url| url.path())
+                    .map(|p| vec![p.to_string()])
+            } else {
+                None
+            }
+        } else {
+            let panel = NSOpenPanel::openPanel();
+            if let Some(title) = options.title.as_deref() {
+                panel.setTitle(Some(&NSString::from_str(title)));
+            }
+            panel.setCanChooseFiles(true);
+            panel.setCanChooseDirectories(false);
+            panel.setAllowsMultipleSelection(options.multiple.unwrap_or(false));
+            if let Some(path) = options.default_path.as_deref() {
+                panel.setDirectoryURL(Some(&objc2_foundation::NSURL::fileURLWithPath(
+                    &NSString::from_str(path),
+                )));
+            }
+            if panel.runModal() == NSModalResponse::NSModalResponseOK {
+                let urls = panel.URLs();
+                let mut paths = Vec::new();
+                for url in urls.iter() {
+                    if let Some(path) = url.path() {
+                        paths.push(path.to_string());
+                    }
+                }
+                Some(paths)
+            } else {
+                None
+            }
+        }
+    };
+    answer(surface, paths);
 }
