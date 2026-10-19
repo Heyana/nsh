@@ -518,7 +518,7 @@ class Player {
             // PlainTextPainter until memory pressure (a price table adds
             // thousands a minute, unbounded). A fresh context has an empty
             // cache; the old one and its cache become unreachable.
-            if (++this.measureUses >= 20000) {
+            if (++this.measureUses >= 5000) {
               this.measureUses = 0;
               this.measure = measureContext();
             }
