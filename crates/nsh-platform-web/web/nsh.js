@@ -475,6 +475,9 @@ class Player {
     this.frame = 0;
     this.measure = measureContext();
     this.measureUses = 0;
+    // The page's own monitor reads these (see perf-overlay.js in code-lab).
+    const stats = (window.__nshStats ??= { measure: 0, contexts: 0 });
+    stats.contexts++;
     this.metricsCache = new Map();
     // Measured widths, keyed by font and text. A frame measures every run of
     // every text it lays out; without this the browser shapes the same
@@ -518,13 +521,20 @@ class Player {
             // PlainTextPainter until memory pressure (a price table adds
             // thousands a minute, unbounded). A fresh context has an empty
             // cache; the old one and its cache become unreachable.
+            const st = window.__nshStats;
+            const t0 = st ? performance.now() : 0;
             if (++this.measureUses >= 5000) {
               this.measureUses = 0;
               this.measure = measureContext();
+              if (st) st.contexts++;
             }
             this.measure.font = font;
             width = this.measure.measureText(text).width;
             this.measureCache.set(key, width);
+            if (st) {
+              st.measure++;
+              st.measureMs = (st.measureMs || 0) + (performance.now() - t0);
+            }
           }
           return width;
         },
@@ -850,7 +860,13 @@ class Player {
     if (this.frame) return;
     this.frame = requestAnimationFrame((now) => {
       this.frame = 0;
+      const st = window.__nshStats;
+      const t0 = st ? performance.now() : 0;
       this.call((w) => w.nsh_frame(now));
+      if (st) {
+        st.frameMs = (st.frameMs || 0) + (performance.now() - t0);
+        st.frameN = (st.frameN || 0) + 1;
+      }
     });
   }
 
@@ -1003,6 +1019,8 @@ class Player {
   // Mounting ------------------------------------------------------------
 
   apply(batch) {
+    const st = window.__nshStats;
+    const t0 = st ? performance.now() : 0;
     for (const item of batch) {
       const handler = this[`op_${item[0]}`];
       if (handler) handler.call(this, item);
@@ -1010,6 +1028,10 @@ class Player {
     this.endLayoutAnimation();
     if (this.changedStacks.size) this.reconcileStacks();
     if (this.removals.length) this.finishRemovals();
+    if (st) {
+      st.applyMs = (st.applyMs || 0) + (performance.now() - t0);
+      st.applyN = (st.applyN || 0) + 1;
+    }
   }
 
   /** The batch is applied: views it removed leave the page, unless they
