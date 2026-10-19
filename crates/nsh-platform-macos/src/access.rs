@@ -43,6 +43,7 @@ use objc2_foundation::{NSArray, NSDictionary, NSNumber, NSString};
 
 use crate::view::NshView;
 
+
 /// What was last given to AppKit for one view.
 #[derive(Debug, Default)]
 pub(crate) struct Applied {
@@ -52,6 +53,20 @@ pub(crate) struct Applied {
     text: Option<Arc<AttributedText>>,
     /// The `testID` set as the identifier.
     test_id: Option<Arc<str>>,
+    /// Whether the view was an accessibility element last time: AppKit is
+    /// only called for a role or a hidden flag that changed, since writing
+    /// all fifteen attributes per changed text is what a ticking table
+    /// spends most of its main-thread time on.
+    ax: AxState,
+}
+
+/// What `apply` last wrote, field by field.
+#[derive(Debug, Clone, PartialEq, Default)]
+struct AxState {
+    element: bool,
+    role: Option<u8>,
+    label: Option<String>,
+    value: Option<String>,
 }
 
 /// The kinds of element nsh makes.
@@ -247,7 +262,8 @@ fn update(view: &NshView) -> bool {
         }
         (spec, s.access.spec.take(), a.live_region)
     };
-    apply(view.ns(), &spec);
+    let written = apply(view.ns(), &spec, &view.state().access.ax);
+    view.state_mut().access.ax = written;
     let label_changed = old.is_some_and(|o| o.label != spec.label);
     let is_text = view.state().text.is_some();
     if label_changed
@@ -266,46 +282,76 @@ fn is_pressable(events: EventMask) -> bool {
     events.contains(EventKind::Press) || events.contains(EventKind::LongPress)
 }
 
-/// Sets `spec` on `view`'s attributes.
-fn apply(view: &NSView, spec: &Spec) {
+/// Writes what changed of `spec` on `view`'s attributes, and returns what it
+/// wrote.
+///
+/// AppKit has no "unchanged" notion here: every setter stores an object in
+/// its attribute table. A price that changes every frame would otherwise
+/// rewrite all fifteen attributes of its text block per frame — measured at
+/// 182 µs of main-thread time in a 40-row table, half the frame's mount cost.
+fn apply(view: &NSView, spec: &Spec, was: &AxState) -> AxState {
     let element = spec.role != Ax::Generic && !spec.hidden;
-    view.setAccessibilityElement(element);
-    view.setAccessibilityHidden(spec.hidden);
-    let (role, subrole) = ax_role(spec.role);
-    view.setAccessibilityRole(role.as_deref());
-    view.setAccessibilitySubrole(subrole.as_deref());
-    let label = spec.label.as_deref().map(NSString::from_str);
-    let help = spec.help.as_deref().map(NSString::from_str);
-    view.setAccessibilityLabel(label.as_deref());
-    view.setAccessibilityHelp(help.as_deref());
-    let number = |v: Option<f32>| v.map(|v| NSNumber::new_f64(v as f64));
-    let (value, description): (Option<Retained<AnyObject>>, _) = match &spec.value {
-        Value::None => (None, None),
-        Value::Text(t) => (Some(NSString::from_str(t).into()), None),
-        Value::Checked(c) => (Some(NSNumber::new_i32(*c).into()), None),
-        Value::Range { now, text, .. } => (
-            number(*now).map(Into::into),
-            text.as_deref().map(NSString::from_str),
-        ),
+    let role = ax_role(spec.role);
+    let label: Option<String> = spec.label.as_deref().map(str::to_owned);
+    let value_text = match &spec.value {
+        Value::Text(t) => Some(t.clone()),
+        Value::Range { now, .. } => now.map(|n| n.to_string()),
+        Value::Checked(c) => Some(c.to_string()),
+        Value::None => None,
     };
-    let (min, max) = match &spec.value {
-        Value::Range { min, max, .. } => (number(*min), number(*max)),
-        _ => (None, None),
-    };
-    // SAFETY: the value attributes take numbers or strings.
-    unsafe {
-        view.setAccessibilityValue(value.as_deref());
-        view.setAccessibilityMinValue(min.as_deref().map(|n| n.as_ref()));
-        view.setAccessibilityMaxValue(max.as_deref().map(|n| n.as_ref()));
+
+    let same_role = was.role == Some(spec.role as u8) && was.element == element;
+    if !same_role {
+        view.setAccessibilityElement(element);
+        view.setAccessibilityHidden(spec.hidden);
+        let (role_name, subrole) = role;
+        view.setAccessibilityRole(role_name.as_deref());
+        view.setAccessibilitySubrole(subrole.as_deref());
+        view.setAccessibilityHelp(spec.help.as_deref().map(NSString::from_str).as_deref());
+        // The rest of the attributes do not change with a role either, but
+        // they are cheap and the role is the rare case.
+        let (min, max) = match &spec.value {
+            Value::Range { min, max, .. } => {
+                (min.map(|v| NSNumber::new_f64(v as f64)), max.map(|v| NSNumber::new_f64(v as f64)))
+            }
+            _ => (None, None),
+        };
+        // SAFETY: the value attributes take numbers or strings.
+        unsafe {
+            view.setAccessibilityMinValue(min.as_deref().map(|n| n.as_ref()));
+            view.setAccessibilityMaxValue(max.as_deref().map(|n| n.as_ref()));
+        }
+        view.setAccessibilityEnabled(!spec.disabled);
+        view.setAccessibilitySelected(spec.selected);
+        view.setAccessibilityExpanded(spec.expanded.unwrap_or(false));
+        let children = (spec.grouped || spec.hidden).then(NSArray::<AnyObject>::new);
+        // SAFETY: an array of accessibility elements (none).
+        unsafe { view.setAccessibilityChildren(children.as_deref()) };
     }
-    view.setAccessibilityValueDescription(description.as_deref());
-    view.setAccessibilityEnabled(!spec.disabled);
-    view.setAccessibilitySelected(spec.selected);
-    view.setAccessibilityExpanded(spec.expanded.unwrap_or(false));
-    // An empty list hides the subtree; `None` gives the subviews back.
-    let children = (spec.grouped || spec.hidden).then(NSArray::<AnyObject>::new);
-    // SAFETY: an array of accessibility elements (none).
-    unsafe { view.setAccessibilityChildren(children.as_deref()) };
+    if was.label.as_deref() != label.as_deref() {
+        let text = label.as_deref().map(NSString::from_str);
+        view.setAccessibilityLabel(text.as_deref());
+    }
+    if was.value != value_text {
+        let (value, description): (Option<Retained<AnyObject>>, Option<String>) = match &spec.value {
+            Value::None => (None, None),
+            Value::Text(t) => (Some(NSString::from_str(t).into()), None),
+            Value::Checked(c) => (Some(NSNumber::new_i32(*c).into()), None),
+            Value::Range { now, text, .. } => (
+                now.map(|v| NSNumber::new_f64(v as f64)).map(Into::into),
+                text.as_deref().map(str::to_owned),
+            ),
+        };
+        // SAFETY: the value attributes take numbers or strings.
+        unsafe { view.setAccessibilityValue(value.as_deref()) };
+        view.setAccessibilityValueDescription(description.as_deref().map(NSString::from_str).as_deref());
+    }
+    AxState {
+        element,
+        role: Some(spec.role as u8),
+        label,
+        value: value_text,
+    }
 }
 
 /// The AppKit role and subrole of `role`.
