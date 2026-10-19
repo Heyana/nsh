@@ -62,6 +62,7 @@ use windows::{
                 VK_RIGHT, VK_SPACE, VK_TAB, VK_UP,
             },
             WindowsAndMessaging::*,
+            Shell::ShellExecuteW,
         },
     },
     core::{PCSTR, PCWSTR, w},
@@ -264,6 +265,20 @@ pub(crate) fn command(surface: &Rc<Surface>, command: &DesktopCommand) {
                 actions: Vec::new(),
             },
         ),
+        DesktopCommand::OpenExternal(url) => {
+            // SAFETY: ShellExecuteW with NUL-terminated strings; opens the
+            // URL in the default browser.
+            let _ = unsafe {
+                ShellExecuteW(
+                    None,
+                    &windows::core::HSTRING::from("open"),
+                    &windows::core::HSTRING::from(url.as_str()),
+                    None,
+                    None,
+                    SW_SHOWNORMAL,
+                )
+            };
+        }
     }
 }
 

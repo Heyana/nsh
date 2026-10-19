@@ -1239,3 +1239,48 @@ fn menus_reach_the_platform_and_call_back() {
         }
     )));
 }
+
+const SHELL: &str = r#"import { mount, Text } from "nsh";
+import { Shell } from "nsh/shell";
+
+Shell.openExternal("https://nsh.dev");
+
+mount(() => <Text>opened</Text>);
+"#;
+
+/// `Shell.openExternal` reaches the platform as a desktop command with the
+/// URL; mobile platforms get nothing.
+#[test]
+fn open_external_reaches_the_platform() {
+    use nsh_core::desktop::DesktopCommand;
+
+    let (_engine, rx) = start_in(
+        SHELL,
+        Environment {
+            os: nsh_engine::Os::Windows,
+            ..Environment::default()
+        },
+    );
+    let batches = until(&rx, |batch| shows(batch, "opened"));
+    assert!(
+        batches.iter().flat_map(|b| &b.items).any(|i| matches!(
+            i,
+            MountItem::Command {
+                id: ROOT_ID,
+                command: Command::Desktop(command),
+            } if **command == DesktopCommand::OpenExternal("https://nsh.dev".into())
+        )),
+        "expected OpenExternal command"
+    );
+
+    // On a phone, nothing is sent.
+    let (_engine, rx) = start(SHELL);
+    let batches = until(&rx, |batch| shows(batch, "opened"));
+    assert!(!batches.iter().flat_map(|b| &b.items).any(|i| matches!(
+        i,
+        MountItem::Command {
+            command: Command::Desktop(_),
+            ..
+        }
+    )));
+}

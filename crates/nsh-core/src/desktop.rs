@@ -615,6 +615,8 @@ pub enum DesktopCommand {
         /// Where its top left corner goes.
         at: Option<(f32, f32)>,
     },
+    /// Opens the URL in the system's default browser.
+    OpenExternal(String),
 }
 
 pub(crate) fn title_bar_height(height: Option<f32>) -> Option<f32> {

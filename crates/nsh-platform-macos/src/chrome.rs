@@ -59,12 +59,12 @@ use objc2::{
 use objc2_app_kit::{
     NSApplication, NSButton, NSEvent, NSEventModifierFlags, NSFloatingWindowLevel, NSMenu,
     NSMenuItem, NSNormalWindowLevel, NSRunningApplication, NSViewFrameDidChangeNotification,
-    NSWindow, NSWindowButton, NSWindowStyleMask, NSWindowTitleVisibility,
+    NSWindow, NSWindowButton, NSWindowStyleMask, NSWindowTitleVisibility, NSWorkspace,
 };
 use objc2_core_graphics::kCGDesktopIconWindowLevel;
 use objc2_foundation::{
     NSNotification, NSNotificationCenter, NSObject, NSObjectProtocol, NSPoint, NSRect, NSSize,
-    NSString, NSUserDefaults, ns_string,
+    NSString, NSURL, NSUserDefaults, ns_string,
 };
 
 use crate::surface::Surface;
@@ -450,6 +450,11 @@ pub(crate) fn command(surface: &Rc<Surface>, command: &DesktopCommand) {
                     popup(&surface, &items, at);
                 }
             });
+        }
+        DesktopCommand::OpenExternal(url) => {
+            if let Some(ns_url) = NSURL::URLWithString(&NSString::from_str(url)) {
+                NSWorkspace::sharedWorkspace().openURL(&ns_url);
+            }
         }
     }
 }

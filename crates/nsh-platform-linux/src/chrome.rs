@@ -182,6 +182,10 @@ pub(crate) fn command(surface: &Rc<Surface>, command: &DesktopCommand) {
         // GTK 4 has no window levels.
         DesktopCommand::SetLevel(_) => {}
         DesktopCommand::Close => close(surface),
+        DesktopCommand::OpenExternal(url) => {
+            // Open in the default browser; don't wait for it.
+            let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+        }
     }
 }
 
