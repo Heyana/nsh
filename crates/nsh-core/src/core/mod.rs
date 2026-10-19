@@ -3240,6 +3240,23 @@ impl<M: TextEngine> Core<M> {
         let layout = self.nodes[key as usize]
             .layout
             .expect("text block has layout");
+        // Measure the rebuilt text before borrowing its context: a text that
+        // changes without changing its measured size cannot move anything.
+        let measured = {
+            let ctx = match self.layout.get_node_context_mut(layout) {
+                Some(LeafContext::Text(ctx)) => ctx,
+                _ => return false,
+            };
+            ctx.cache.map(|(max_width, _)| {
+                let engine = &self.text_engine;
+                let cache = &mut self.measure_cache;
+                let ctx = match self.layout.get_node_context_mut(layout) {
+                    Some(LeafContext::Text(ctx)) => ctx,
+                    _ => unreachable!(),
+                };
+                measure_text(engine, cache, ctx, max_width)
+            })
+        };
         let ctx = self.text_ctx(layout);
         if *ctx.text == text {
             if inserted {
@@ -3258,6 +3275,19 @@ impl<M: TextEngine> Core<M> {
         // Platform typesetting state embeds colors too: always rebuild it.
         ctx.prepared = None;
         if !same_layout {
+            // The run's width was measured while it had the old digits
+            // (`measure_text` caches it by layout hash). Measure the new text
+            // at the width the layout gave it before asking taffy to walk the
+            // tree: a price that grows by a digit inside a fixed column
+            // re-typesets and repaints but cannot move a box, and asking for
+            // that walk is what a ticking table spends its CPU on.
+            if let (Some(before), Some(after)) = (ctx.cache.map(|(_, s)| s), measured) {
+                if after == before {
+                    ctx.layout_hash = ctx.text.layout_hash();
+                    ctx.laid_out = None;
+                    return true;
+                }
+            }
             ctx.laid_out = None;
             ctx.layout_hash = ctx.text.layout_hash();
             ctx.cache = None;
