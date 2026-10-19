@@ -224,7 +224,7 @@ nsh certify --root <ROOT.secret> --key <KEY.pub> --apps <PATTERN>... [--days <DA
 ### nsh publish
 
 ```sh
-nsh publish [ENTRY] --key <KEY.secret> --cert <CERT> [-o <OUT>] [--id <ID>] [--app-version <V>] [--build <N>]
+nsh publish [ENTRY] --key <KEY.secret> --cert <CERT> [-o <OUT>] [--id <ID>] [--app-version <V>] [--build <N>] [--min-runtime <VERSION>]
 ```
 
 以 release 模式构建应用并签名为一个包。元数据来自 `nsh.json`，可被参数覆盖。
@@ -237,6 +237,7 @@ nsh publish [ENTRY] --key <KEY.secret> --cert <CERT> [-o <OUT>] [--id <ID>] [--a
 | `--id <ID>` | 应用 id。 |
 | `--app-version <VERSION>` | 版本号。 |
 | `--build <BUILD>` | 构建号：每次发布都必须递增。 |
+| `--min-runtime <VERSION>` | 能运行该包的最低运行时版本，例如 `0.2.0`；更旧的运行时会拒绝它。默认：本 CLI 的版本（[签名包](./signed-packages.md#哪些运行时能运行包)）。 |
 
 ### nsh verify
 

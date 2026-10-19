@@ -17,6 +17,9 @@ For code an app downloads (first-party updates, third-party mini apps): `nsh_pac
   declared capabilities, bytecode version, minimum runtime, signing time, the certificate, a file table with SHA-256s)
   then the files (source, bytecode, source map, assets), then the release key's signature over everything before it.
   The source is always included; the bytecode is only used when its version is the runtime's `BYTECODE_VERSION`.
+  The minimum runtime defaults to the signing CLI's version (`RUNTIME_VERSION`, the workspace version): the bundle
+  links against that CLI's native modules, so only it is known to run it. `nsh publish --min-runtime` / `nsh.json`
+  `minRuntime` lowers it (`MAJOR.MINOR.PATCH`, never above the signer's; suffixes are ignored when comparing).
   `nsh publish` refuses to sign what a device would refuse (the certificate must cover the app and the time).
 - **Verification** (`TrustStore::verify`): the certificate's root signature, the release key not revoked, the package
   signature, the app id and the signing time against the certificate, the minimum runtime, the file table tiling the

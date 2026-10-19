@@ -247,6 +247,10 @@ enum Command {
         /// Build number: must grow with every release.
         #[arg(long)]
         build: Option<u32>,
+        /// The lowest runtime that runs the package, e.g. `0.2.0` (default:
+        /// this CLI's version); older runtimes refuse it.
+        #[arg(long, value_name = "VERSION")]
+        min_runtime: Option<String>,
     },
     /// Verify a package as an app trusting the given roots would (without
     /// roots: only its signature).
@@ -545,11 +549,13 @@ fn dispatch(command: Command) -> anyhow::Result<()> {
             id,
             version,
             build,
+            min_runtime,
         } => {
             let mut config = package::read_config(&entry)?;
             config.id = id.or(config.id);
             config.version = version.or(config.version);
             config.build = build.or(config.build);
+            config.min_runtime = min_runtime.or(config.min_runtime);
             sign::publish(sign::PublishOptions {
                 entry: &entry,
                 key: &key,

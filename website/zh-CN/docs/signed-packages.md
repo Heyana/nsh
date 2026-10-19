@@ -80,7 +80,7 @@ nsh publish App.tsx --key keys/release.secret --cert keys/release.cert
 ```
 
 ```text
-out/com.example.counter-2.nshpkg: com.example.counter 1.0.0 (build 2), 0 assets, 12 KB, signed by 3428d7136788c9ee
+out/com.example.counter-2.nshpkg: com.example.counter 1.0.0 (build 2), 0 assets, 12 KB, signed by 3428d7136788c9ee, for runtime 0.1.1 or newer
 ```
 
 `nsh publish` 以 release 模式构建应用并签名。app id、名称、版本和构建号取自入口文件旁的 `nsh.json`，可以用下列参数覆盖：
@@ -93,6 +93,7 @@ out/com.example.counter-2.nshpkg: com.example.counter 1.0.0 (build 2), 0 assets,
 | `--id <id>` | app id，例如 `com.example.app`。 |
 | `--app-version <version>` | 版本，例如 `1.2.0`。 |
 | `--build <n>` | 构建号。必填（在此处或 `nsh.json` 中指定）；每次发布都必须递增。 |
+| `--min-runtime <version>` | 能运行该包的最低运行时版本，例如 `0.2.0`（`nsh.json` 中的 `minRuntime`）。默认：本 CLI 的版本。见[哪些运行时能运行包](#哪些运行时能运行包)。 |
 
 凡是设备会拒绝的包，`nsh publish` 也拒绝签名：证书必须覆盖该 app id 和当前时间。
 
@@ -100,9 +101,27 @@ out/com.example.counter-2.nshpkg: com.example.counter 1.0.0 (build 2), 0 assets,
 error the release key's certificate does not cover this package: it does not cover app `com.example.counter` (only com.other.app)
 ```
 
+### 哪些运行时能运行包
+
+包里写明了能运行它的最低 NSH 运行时版本，运行时比它旧的宿主应用会在运行任何代码之前拒绝它：
+
+```text
+error the package needs runtime 0.2.0 or newer; this runtime is 0.1.1
+```
+
+默认值是构建该包的 CLI 的版本：bundle 是按这个 CLI 的模块编译的，所以已知能运行它的就是这个版本的运行时。如果线上的宿主
+应用运行时更旧，而应用只用到了那个运行时已有的功能，就用 `--min-runtime`（或 `nsh.json` 中的 `minRuntime`）为它发布：
+
+```sh
+nsh publish App.tsx --key keys/release.secret --cert keys/release.cert --min-runtime 0.1.0
+```
+
+版本号的格式是 `MAJOR.MINOR.PATCH`；带预发布后缀的版本（`0.2.0-beta.1`）按去掉后缀的版本计算。它不能比 CLI 更新。
+上传之前，先在带有该运行时的宿主应用上试一下这个包：旧运行时缺少的导入或函数，会在模块加载时报错。
+
 ### 包里有什么
 
-包是单个文件：先是一个 JSON 头（app id、名称、版本、构建号、声明的能力、字节码版本、签名时间、发布密钥的证书，以及
+包是单个文件：先是一个 JSON 头（app id、名称、版本、构建号、声明的能力、字节码版本、最低运行时版本、签名时间、发布密钥的证书，以及
 一张列出各文件及其 SHA-256 的文件表），然后是各个文件，最后是发布密钥对前面所有内容的 Ed25519 签名。其中的文件包括：
 
 - 应用的 JS 源码（始终包含）；

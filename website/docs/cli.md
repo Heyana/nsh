@@ -244,7 +244,7 @@ Certifies a release key with a root key for some app ids and a time window; pack
 ### nsh publish
 
 ```sh
-nsh publish [ENTRY] --key <KEY.secret> --cert <CERT> [-o <OUT>] [--id <ID>] [--app-version <V>] [--build <N>]
+nsh publish [ENTRY] --key <KEY.secret> --cert <CERT> [-o <OUT>] [--id <ID>] [--app-version <V>] [--build <N>] [--min-runtime <VERSION>]
 ```
 
 Builds the app in release mode and signs it into a package. Metadata comes from `nsh.json`, overridden by the flags.
@@ -257,6 +257,7 @@ Builds the app in release mode and signs it into a package. Metadata comes from 
 | `--id <ID>` | App id. |
 | `--app-version <VERSION>` | Version. |
 | `--build <BUILD>` | Build number: must grow with every release. |
+| `--min-runtime <VERSION>` | The lowest runtime that runs the package, e.g. `0.2.0`; older runtimes refuse it. Default: this CLI's version ([Signed packages](./signed-packages.md#which-runtimes-run-a-package)). |
 
 ### nsh verify
 
