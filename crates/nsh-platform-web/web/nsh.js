@@ -474,7 +474,13 @@ class Player {
     this.timer = 0;
     this.frame = 0;
     this.measure = measureContext();
+    this.measureUses = 0;
     this.metricsCache = new Map();
+    // Measured widths, keyed by font and text. A frame measures every run of
+    // every text it lays out; without this the browser shapes the same
+    // strings again every frame (a price table measures hundreds per frame),
+    // and each shaping leaves a text fragment for the collector.
+    this.measureCache = new Map();
     this.layoutAnimation = null;
     // Views created and removed while a layout animation is configured.
     this.appearing = [];
@@ -500,8 +506,27 @@ class Player {
         now_ms: () => performance.now(),
         date_now_ms: () => Date.now(),
         measure_text: (fp, fl, tp, tl) => {
-          this.measure.font = this.str(fp, fl);
-          return this.measure.measureText(this.str(tp, tl)).width;
+          const font = this.str(fp, fl);
+          const text = this.str(tp, tl);
+          const key = `${font}\u0000${text}`;
+          let width = this.measureCache.get(key);
+          if (width === undefined) {
+            // Bounded: an app that renders unbounded distinct strings must
+            // not turn this into a leak of its own.
+            if (this.measureCache.size >= 16384) this.measureCache.clear();
+            // Blink keeps every shaped string in the canvas context's
+            // PlainTextPainter until memory pressure (a price table adds
+            // thousands a minute, unbounded). A fresh context has an empty
+            // cache; the old one and its cache become unreachable.
+            if (++this.measureUses >= 20000) {
+              this.measureUses = 0;
+              this.measure = measureContext();
+            }
+            this.measure.font = font;
+            width = this.measure.measureText(text).width;
+            this.measureCache.set(key, width);
+          }
+          return width;
         },
         font_ascent: (fp, fl) => this.metrics(this.str(fp, fl))[0],
         font_descent: (fp, fl) => this.metrics(this.str(fp, fl))[1],
@@ -631,6 +656,8 @@ class Player {
         }
         this.fontsPending = [];
         this.metricsCache.clear();
+        // Widths measured with a fallback face are wrong now.
+        this.measureCache.clear();
         this.call((w) => w.nsh_fonts_loaded());
         clearTimeout(this.fontTimer);
         this.root.classList.remove("nsh-hidden");
