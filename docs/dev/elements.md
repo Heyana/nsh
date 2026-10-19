@@ -95,6 +95,10 @@ misses the deadline is not waited for again until it catches up (`docs/dev/macos
   picked again after every batch (on macOS also after every scroll), so a view removed or moved from under a still mouse hears `onHoverOut` and one
   that arrives there `onHoverIn`; on Linux that waits for the next mouse move. Touches never hover. Other platforms do
   not raise them yet (iOS, Android, Windows and the web track `hover:` styles only).
+- **`onContextMenu`** (any element; macOS, Windows, Linux and GPUI) fires when the secondary mouse button is pressed on
+  a view, with `{ x, y }` in the view's points. The innermost view under the click that listens gets the event; on
+  Windows and GPUI a text field or selectable text under the click keeps its native edit menu instead. Pair it with
+  `Menu.popup(items, { x, y })` from `nsh/desktop` to show a context menu at the click.
 - **`onPanEnd` / `onPanStart`** carry `valueX` / `valueY`: the bound pan values at that moment (a drag may grab a value mid
   animation), for snapping.
 - **Imperative calls**: nodes have `focus()`, `blur()` and `scrollTo({ x, y, animated })` (use `ref`); lists also

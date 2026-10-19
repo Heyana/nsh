@@ -177,6 +177,7 @@ events! {
     FileDragEnter = "onFileDragEnter": "A local file drag entered an eligible desktop drop destination.",
     FileDragLeave = "onFileDragLeave": "A local file drag left its desktop drop destination.",
     FileDrop = "onFileDrop": "Local files were dropped (payload: [`EventPayload::FileDrop`]).",
+    ContextMenu = "onContextMenu": "The secondary mouse button was pressed on the view (desktops; payload: `x`, `y` in the view's coordinates).",
 }
 
 /// What an input holds, for the system's autofill and suggestions

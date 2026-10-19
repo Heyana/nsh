@@ -641,6 +641,9 @@ fn dispatch(surface: &Rc<Surface>, event: &gdk::Event) -> glib::Propagation {
         T::ButtonPress if button() == Some(gdk::BUTTON_PRIMARY) => {
             down(surface, Key::Mouse, x, y, time)
         }
+        T::ButtonPress if button() == Some(gdk::BUTTON_SECONDARY) => {
+            context_menu(surface, x, y)
+        }
         T::ButtonRelease if button() == Some(gdk::BUTTON_PRIMARY) => {
             up(surface, Key::Mouse, x, y, time, false)
         }
@@ -1843,10 +1846,37 @@ fn wheel_zoom(surface: &Rc<Surface>, x: f32, y: f32, dy: f32) -> bool {
 
 // --- Hover --------------------------------------------------------------------------
 
+/// The secondary mouse button was pressed at `(x, y)` (root coordinates):
+/// raises `onContextMenu` on the innermost view under it that listens,
+/// with the position in the view's coordinates.
+fn context_menu(surface: &Rc<Surface>, x: f32, y: f32) {
+    let Some(hit) = pick(&surface.root, x, y) else {
+        return;
+    };
+    for view in chain(&hit.view) {
+        let (id, listens) = {
+            let s = view.state();
+            (s.id, s.events.contains(EventKind::ContextMenu))
+        };
+        if listens {
+            let (lx, ly) = local(surface, &view, x, y);
+            log::debug!(target: "nsh::input", "onContextMenu on {id}");
+            surface.event(
+                id,
+                EventKind::ContextMenu,
+                EventPayload::Map(vec![
+                    ("x", PayloadValue::Number(lx as f64)),
+                    ("y", PayloadValue::Number(ly as f64)),
+                ]),
+            );
+            return;
+        }
+    }
+}
+
 /// The mouse moved to `(x, y)`: updates `HOVERED` and raises `onHoverIn` /
 /// `onHoverOut` along the views under it.
-fn hover(surface: &Rc<Surface>, x: f32, y: f32) {
-    let input = &surface.input;
+fn hover(surface: &Rc<Surface>, x: f32, y: f32) {    let input = &surface.input;
     let views = pick(&surface.root, x, y)
         .map(|hit| chain(&hit.view))
         .unwrap_or_default();

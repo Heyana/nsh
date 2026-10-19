@@ -409,6 +409,12 @@ pub const EVENTS: &[(EventKind, u32, &str, &str)] = &[
         "(e: { uris: string[] }) => void",
         "Local file URLs dropped on this desktop destination.",
     ),
+    (
+        EventKind::ContextMenu,
+        on::ALL,
+        "(e: { x: number, y: number }) => void",
+        "The secondary mouse button was pressed on the view (desktops; `x`, `y` in the view's points).",
+    ),
     (EventKind::Layout, on::ALL, "(e: LayoutEvent) => void", ""),
     (EventKind::PanStart, on::ALL, "(e: PanEvent) => void", ""),
     (

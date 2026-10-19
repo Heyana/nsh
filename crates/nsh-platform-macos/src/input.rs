@@ -641,11 +641,14 @@ pub(crate) fn event(surface: &Rc<Surface>, event: &NSEvent) {
         NSEventType::OtherMouseDown if event.buttonNumber() == BACK_BUTTON => {
             crate::navigation::go_back(surface);
         }
+        NSEventType::RightMouseDown => {
+            input.last.set(Some((x, y)));
+            context_menu(surface, x, y);
+        }
         NSEventType::ScrollWheel => scroll_event(surface, event, x, y, time),
         NSEventType::Magnify => magnify(surface, event, x, y),
         NSEventType::Rotate => rotate(surface, event, x, y),
-        // Right and other buttons do nothing (no context menus), as on
-        // Linux.
+        // Other buttons do nothing, as on Linux.
         _ => {}
     }
 }
@@ -1866,9 +1869,36 @@ fn set_hovered(surface: &Surface, views: Vec<NshView>) {
     }
 }
 
+/// The secondary mouse button was pressed at `(x, y)`: raises
+/// `onContextMenu` on the innermost view under it that listens, with the
+/// position in the view's coordinates.
+fn context_menu(surface: &Surface, x: f32, y: f32) {
+    let Some(hit) = pick(&surface.root, x, y) else {
+        return;
+    };
+    for view in chain(&hit.view) {
+        let (id, listens) = {
+            let s = view.state();
+            (s.id, s.events.contains(EventKind::ContextMenu))
+        };
+        if listens {
+            let (lx, ly) = local(surface, &view, x, y);
+            log::debug!(target: "nsh::input", "onContextMenu on {id}");
+            surface.event(
+                id,
+                EventKind::ContextMenu,
+                EventPayload::Map(vec![
+                    ("x", PayloadValue::Number(lx as f64)),
+                    ("y", PayloadValue::Number(ly as f64)),
+                ]),
+            );
+            return;
+        }
+    }
+}
+
 /// `onHoverIn` / `onHoverOut` of `view`, if it listens.
-fn hover_event(surface: &Surface, view: &NshView, kind: EventKind) {
-    let (id, listens) = {
+fn hover_event(surface: &Surface, view: &NshView, kind: EventKind) {    let (id, listens) = {
         let s = view.state();
         (s.id, s.events.contains(kind))
     };

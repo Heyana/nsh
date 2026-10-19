@@ -891,7 +891,8 @@ fn collect_drag(
 }
 
 /// A right click at `(x, y)`: the edit menu of the text field or the
-/// selectable text under it.
+/// selectable text under it, and `onContextMenu` on the innermost view
+/// under it that listens.
 fn context_menu(surface: &Rc<Surface>, x: f32, y: f32) {
     let Some(hit) = pick(&surface.root, x, y, true) else {
         return;
@@ -911,6 +912,26 @@ fn context_menu(surface: &Rc<Surface>, x: f32, y: f32) {
             return;
         }
         view = v.parent_view();
+    }
+    // No text menu: raise `onContextMenu` on the innermost listener.
+    for view in chain(&hit.view) {
+        let (id, listens) = {
+            let s = view.state();
+            (s.id, s.events.contains(EventKind::ContextMenu))
+        };
+        if listens {
+            let (lx, ly) = local(&view, x, y);
+            log::debug!(target: "nsh::input", "onContextMenu on {id}");
+            surface.event(
+                id,
+                EventKind::ContextMenu,
+                EventPayload::Map(vec![
+                    ("x", PayloadValue::Number(lx as f64)),
+                    ("y", PayloadValue::Number(ly as f64)),
+                ]),
+            );
+            return;
+        }
     }
 }
 
