@@ -381,6 +381,14 @@ pub fn clipboard_has_string() -> Answer<bool> {
     answer
 }
 
+/// Whether the window is maximized (TS: `Window.isMaximized`; desktops,
+/// false elsewhere), to await in a task.
+pub fn is_maximized() -> Answer<bool> {
+    let (answer, action) = super::services::is_maximized();
+    act(action);
+    answer
+}
+
 /// Shows `message` at the bottom of the screen (Android's toasts, TS:
 /// `Toast.show`); nothing happens elsewhere.
 pub fn toast(message: impl Into<String>, duration: super::ToastDuration) {

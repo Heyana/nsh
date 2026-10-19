@@ -143,6 +143,12 @@ pub(crate) fn clipboard_has_string() -> (Answer<bool>, Action) {
     (answer, Action::ReadClipboard(ClipboardRead::Has(slot)))
 }
 
+/// Whether the window is maximized (desktops; false elsewhere).
+pub(crate) fn is_maximized() -> (Answer<bool>, Action) {
+    let (answer, slot) = Answer::new();
+    (answer, Action::IsMaximized(slot))
+}
+
 /// The size of the image at `uri`, its bytes loaded.
 pub(crate) fn image_size(uri: String) -> (Answer<Result<ImageSize, String>>, Action) {
     let (answer, slot) = Answer::new();

@@ -483,6 +483,21 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
             }
         }
         Command::ReadClipboard { id, has_only } => read_clipboard(surface, *id, *has_only),
+        Command::IsMaximized { id } => {
+            let maximized = surface
+                .root
+                .root()
+                .and_downcast::<gtk::Window>()
+                .is_some_and(|w| w.is_maximized());
+            surface.event(
+                ROOT_ID,
+                EventKind::Maximized,
+                EventPayload::Map(vec![
+                    ("id", PayloadValue::Number(*id as f64)),
+                    ("maximized", PayloadValue::Bool(maximized)),
+                ]),
+            );
+        }
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {
             // Closing destroys the window, whose handler stops the surface:

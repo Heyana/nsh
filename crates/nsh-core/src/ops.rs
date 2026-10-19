@@ -172,6 +172,7 @@ events! {
     Clipboard = "onClipboard": "A clipboard read finished (root only; payload: `id`, `has`: whether it holds text, `text`: the text, unless only `has` was asked).",
     KeyCommand = "onKeyCommand": "A key matched a binding of `nsh/keymap` (root only; payload: the binding's id, [`crate::keymap::KeyBinding::id`]).",
     Menu = "onMenu": "A menu item was chosen: the application menu's or a context menu's (root only; desktops; payload: `id`), or a context menu closed (`closed`: true, after its item).",
+    Maximized = "onMaximized": "A window maximized query finished (root only; desktops; payload: `id`, `maximized`: whether the window is maximized).",
     HoverIn = "onHoverIn": "The mouse came over the view or a view inside it (macOS, Linux and GPUI; never on touches).",
     HoverOut = "onHoverOut": "The mouse left the view and the views inside it, or the window (macOS, Linux and GPUI).",
     FileDragEnter = "onFileDragEnter": "A local file drag entered an eligible desktop drop destination.",
@@ -1001,6 +1002,12 @@ pub enum Command {
         id: u32,
         /// Only whether it holds text (`Clipboard.hasString`).
         has_only: bool,
+    },
+    /// Whether the window is maximized, reported as [`EventKind::Maximized`]
+    /// `id` (on the root): `maximized`. Desktops only.
+    IsMaximized {
+        /// The request.
+        id: u32,
     },
     /// A desktop command (on the root; `nsh/desktop`): the window, its
     /// title bar, menus. Mobile platforms ignore it.

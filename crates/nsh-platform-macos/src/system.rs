@@ -374,6 +374,17 @@ pub(crate) fn command(surface: &Rc<Surface>, _id: NodeId, command: &Command) {
                 .setString_forType(&NSString::from_str(text), unsafe { NSPasteboardTypeString });
         }
         Command::ReadClipboard { id, has_only } => read_clipboard(surface, *id, *has_only),
+        Command::IsMaximized { id } => {
+            let maximized = surface.root.ns().window().is_some_and(|w| w.isZoomed());
+            surface.event(
+                ROOT_ID,
+                EventKind::Maximized,
+                EventPayload::Map(vec![
+                    ("id", PayloadValue::Number(*id as f64)),
+                    ("maximized", PayloadValue::Bool(maximized)),
+                ]),
+            );
+        }
         Command::Back => crate::navigation::default_back(surface),
         Command::ExitApp => {
             if let Some(window) = surface.root.ns().window() {

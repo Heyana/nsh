@@ -626,6 +626,7 @@ pub(crate) fn title_bar_height(height: Option<f32>) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::task::Action;
 
     #[test]
     fn custom_title_bar_height_is_finite_positive_and_bounded() {
@@ -638,6 +639,16 @@ mod tests {
         ] {
             assert_eq!(title_bar_height(height), None);
         }
+    }
+
+    #[test]
+    fn is_maximized_service_creates_query_action() {
+        let (_answer, action) = crate::ui::services::is_maximized();
+        assert!(matches!(action, Action::IsMaximized(_)));
+    }
+
+    #[test]
+    fn custom_title_bar_height_clamps() {
         assert_eq!(title_bar_height(Some(42.0)), Some(42.0));
         assert_eq!(title_bar_height(Some(300.0)), Some(200.0));
     }

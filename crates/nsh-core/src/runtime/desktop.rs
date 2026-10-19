@@ -49,6 +49,11 @@ impl Window {
         desktop(cx, DesktopCommand::ToggleMaximize);
     }
 
+    /// Whether the window is maximized (desktops; `false` elsewhere).
+    pub(crate) async fn is_maximized() -> bool {
+        crate::ui::prelude::is_maximized().await
+    }
+
     /// Enters or leaves full screen.
     pub(crate) fn toggle_full_screen(cx: &mut ModuleCx) {
         desktop(cx, DesktopCommand::ToggleFullScreen);

@@ -75,6 +75,8 @@ pub(crate) enum Action {
     ),
     /// Reads the system clipboard; the answer resolves the slot.
     ReadClipboard(ClipboardRead),
+    /// Whether the window is maximized; the answer resolves the slot.
+    IsMaximized(AnswerSlot<bool>),
     /// An operation on the native animation graph.
     Animation(nsh_animation::AnimationOp),
     /// Starts an animation; its end resolves the slot.

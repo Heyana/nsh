@@ -161,7 +161,7 @@ fn top_level(hwnd: HWND) -> bool {
     !hwnd.is_invalid() && style & WS_CHILD.0 == 0
 }
 
-fn zoomed(hwnd: HWND) -> bool {
+pub(crate) fn zoomed(hwnd: HWND) -> bool {
     // SAFETY: a plain query.
     unsafe { IsZoomed(hwnd) }.as_bool()
 }

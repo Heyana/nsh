@@ -306,6 +306,10 @@ pub(super) struct Components {
     /// id: their answers.
     clipboard_reads: FxHashMap<u32, ClipboardRead>,
     next_clipboard_read: u32,
+    /// Window maximized queries (`Window.isMaximized`), by request id:
+    /// their answers.
+    is_maximized_reads: FxHashMap<u32, AnswerSlot<bool>>,
+    next_is_maximized_read: u32,
     /// HTTP requests of tasks (`ui::fetch`), by request id: what arrived
     /// so far and the answer.
     fetches: FxHashMap<u32, PendingFetch>,
@@ -380,6 +384,8 @@ impl Default for Components {
             next_image_info: 1,
             clipboard_reads: FxHashMap::default(),
             next_clipboard_read: 1,
+            is_maximized_reads: FxHashMap::default(),
+            next_is_maximized_read: 1,
             fetches: FxHashMap::default(),
             fetch_requests: Vec::new(),
             next_fetch: 1,
@@ -3268,6 +3274,15 @@ impl<M: TextEngine> Core<M> {
                     command: Command::ReadClipboard { id, has_only },
                 });
             }
+            Action::IsMaximized(answer) => {
+                let id = self.components.next_is_maximized_read;
+                self.components.next_is_maximized_read += 1;
+                self.components.is_maximized_reads.insert(id, answer);
+                let _ = self.apply_op(Op::Command {
+                    id: crate::ROOT_ID,
+                    command: Command::IsMaximized { id },
+                });
+            }
         }
     }
 
@@ -3365,6 +3380,13 @@ impl<M: TextEngine> Core<M> {
         }
     }
 
+    /// The answer to window maximized query `id`.
+    pub(super) fn answer_is_maximized(&mut self, id: u32, maximized: bool) {
+        if let Some(answer) = self.components.is_maximized_reads.remove(&id) {
+            answer.borrow_mut().deliver(maximized);
+        }
+    }
+
     /// Events the components handle before anything else: dialog answers
     /// (theirs never reach JS), insets of screens and modals.
     fn platform_event(&mut self, id: NodeId, kind: EventKind, payload: &EventPayload) -> bool {
@@ -3459,6 +3481,21 @@ impl<M: TextEngine> Core<M> {
                     }
                 }
                 self.answer_clipboard(request as u32, text, has);
+                true
+            }
+            EventKind::Maximized if id == crate::ROOT_ID => {
+                let Some(request) = number("id") else {
+                    return false;
+                };
+                let mut maximized = false;
+                if let EventPayload::Map(entries) = payload {
+                    for (k, v) in entries {
+                        if let ("maximized", crate::PayloadValue::Bool(b)) = (*k, v) {
+                            maximized = *b;
+                        }
+                    }
+                }
+                self.answer_is_maximized(request as u32, maximized);
                 true
             }
             EventKind::Insets => {
