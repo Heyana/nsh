@@ -255,6 +255,7 @@ echo 'await app.screenshot("a.png"); await app.press("label:Navigation"); await 
 ./target/debug/nsh run examples/gallery --target web                       # in the browser (the dev server serves the page)
 ./target/debug/nsh package examples/gallery --target web --run             # a static site (files named by content), served on this machine
 ./target/debug/nsh package examples/gallery --target ios-simulator --run   # installable app (.app / .ipa / .apk)
+NSH_SIGN=<identity> NSH_PROFILE=<.mobileprovision> scripts/ios-device.sh <app-dir> [--screenshot <png>] [--console]   # release build onto a connected iPhone: package, install, launch (the simulator shows neither ProMotion nor the device's frame rate)
 cargo xtask android [--release] [--dev]                                            # Android runtime into target/android/<profile>[-dev]
 cargo xtask dist                                                                   # the distribution in dist/nsh
 ./target/debug/nsh dev examples/counter --server-only                      # dev server only (for simulators / devices); prints local and LAN URLs
