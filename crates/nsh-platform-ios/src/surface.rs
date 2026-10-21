@@ -116,7 +116,7 @@ pub(crate) struct RootViewIvars {
     observers: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>>,
     /// The performance monitor's panel, while it shows
     /// ([`Surface::set_fps_monitor`]).
-    fps: RefCell<Option<Rc<crate::fps::Hud>>>,
+    fps: RefCell<Option<Arc<crate::fps::Monitor>>>,
     /// The monitor to install once the engine starts: a surface is created
     /// before its view has a size, and the engine starts on the first
     /// non-empty layout ([`RootView::start`]).
@@ -587,17 +587,17 @@ impl Surface {
         *self.view.ivars().on_error.get(self.view.mtm()).borrow_mut() = Some(Box::new(handler));
     }
 
-    /// Shows (or hides) the performance monitor: a panel over the surface
-    /// with the frame rate, what a frame costs the main thread and the
-    /// process' CPU and memory. Measuring starts with it and stops when it
+    /// Starts (or stops) the performance monitor: the frame rate, what a
+    /// frame costs the main thread and the process' CPU and memory, which an
+    /// app reads with `nsh/perf` (`snapshot()`). It draws nothing itself —
+    /// the overlay is the app's. Measuring starts with it and stops when it
     /// hides; it survives reloads.
     pub fn set_fps_monitor(&self, show: bool) {
-        let mtm = self.view.mtm();
         let ivars = self.view.ivars();
-        let mut hud = ivars.fps.borrow_mut();
-        match (show, hud.is_some()) {
-            (true, false) => *hud = Some(crate::fps::Hud::show(&self.view, mtm)),
-            (false, true) => *hud = None,
+        let mut monitor = ivars.fps.borrow_mut();
+        match (show, monitor.is_some()) {
+            (true, false) => *monitor = Some(crate::fps::Monitor::start(&self.view)),
+            (false, true) => *monitor = None,
             _ => {}
         }
     }

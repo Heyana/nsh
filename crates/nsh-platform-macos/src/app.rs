@@ -158,7 +158,7 @@ pub struct AppView {
     container: Retained<NSView>,
     options: RefCell<AppOptions>,
     /// The performance monitor's HUD, while it shows.
-    fps: RefCell<Option<Rc<crate::fps::Hud>>>,
+    fps: RefCell<Option<Rc<crate::fps::Monitor>>>,
     #[cfg(feature = "dev")]
     pub(crate) dev: RefCell<Option<crate::dev::DevSession>>,
 }
@@ -243,22 +243,17 @@ impl AppView {
         self.surface.native.components().register(name, factory);
     }
 
-    /// Shows (or hides) the performance monitor: a panel at the top right
-    /// with the frame rate, what frames cost the main thread, what commits
-    /// cost the engine thread (JS, layout), and the process' CPU, GPU and
-    /// memory. Measuring starts with it and stops when it hides; it
-    /// survives reloads.
+    /// Starts (or stops) the performance monitor: the frame rate, what
+    /// frames cost the main thread, what commits cost the engine thread and
+    /// the process' CPU, GPU and memory, which an app reads with `nsh/perf`
+    /// (`snapshot()`). It draws nothing itself: the overlay is the app's
+    /// (`code-lab`'s nsh-cross-demo has one). Measuring starts with it and
+    /// stops when it hides; it survives reloads.
     pub fn set_fps_monitor(&self, show: bool) {
-        let mut hud = self.fps.borrow_mut();
-        match (show, hud.is_some()) {
-            (true, false) => {
-                // `NSH_PERF_LOG` logs the readings from a packaged app too; the
-                // HUD's log line is the only way to measure one without an
-                // instrumented build.
-                let log = self.options.borrow().trace || std::env::var_os("NSH_PERF_LOG").is_some();
-                *hud = Some(crate::fps::Hud::show(self, log));
-            }
-            (false, true) => *hud = None,
+        let mut monitor = self.fps.borrow_mut();
+        match (show, monitor.is_some()) {
+            (true, false) => *monitor = Some(crate::fps::Monitor::start(self)),
+            (false, true) => *monitor = None,
             _ => {}
         }
     }
