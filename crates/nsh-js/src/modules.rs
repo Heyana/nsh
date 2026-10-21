@@ -352,6 +352,11 @@ pub(crate) const MODULES: &[NativeModule] = &[
         types: decl!(env::DEVICE_TYPES),
     },
     NativeModule {
+        name: "nsh/perf",
+        exports: env::PERF_EXPORTS,
+        types: decl!(env::PERF_TYPES),
+    },
+    NativeModule {
         name: "nsh/accessibility",
         exports: env::ACCESSIBILITY_EXPORTS,
         also: &[],

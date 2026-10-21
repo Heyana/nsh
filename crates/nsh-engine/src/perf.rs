@@ -27,6 +27,8 @@
 //! from what a frame cost rather than counted (so the monitor never drives
 //! frames to find it), and the first frames, the cold ones, are not counted.
 
+use std::sync::Arc;
+
 use std::{collections::VecDeque, sync::Mutex, time::Duration};
 
 use nsh_core::time::Instant;
@@ -430,6 +432,44 @@ impl PerfMonitor {
             anim_write: Stat::of(inner.anim_write.iter().copied()),
             process: inner.process,
         }
+    }
+}
+
+/// A [`PerfMonitor`] as `nsh/perf` reads it (`nsh-js` cannot name the type:
+/// it sits below this crate).
+pub struct MonitorSource(pub Arc<PerfMonitor>);
+
+impl nsh_js::PerfSource for MonitorSource {
+    fn snapshot_json(&self) -> String {
+        self.0.snapshot().to_json()
+    }
+}
+
+impl PerfSnapshot {
+    /// The readings as JSON, for `nsh/perf` (`nsh-js` cannot name this type:
+    /// it sits below the engine). Milliseconds, so an app prints them as-is.
+    pub fn to_json(&self) -> String {
+        fn ms(d: std::time::Duration) -> f64 {
+            d.as_secs_f64() * 1000.0
+        }
+        serde_json::json!({
+            "fps": self.fps,
+            "maxFps": self.max_fps,
+            "refreshRate": self.refresh_rate,
+            "tickInterval": ms(self.tick_interval.mean),
+            "frameInterval": ms(self.frame_interval.mean),
+            "frame": ms(self.frame.mean),
+            "frameP50": ms(self.frame.p50),
+            "frameP95": ms(self.frame.p95),
+            "frameMax": ms(self.frame.max),
+            "dropped": self.dropped,
+            "commits": self.commits,
+            "js": ms(self.js.mean),
+            "cpu": self.process.cpu,
+            "gpu": self.process.gpu,
+            "memory": self.process.memory,
+        })
+        .to_string()
     }
 }
 
