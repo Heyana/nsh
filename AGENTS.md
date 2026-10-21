@@ -172,6 +172,11 @@ one change travels through.
 | Changing | Read |
 |---|---|
 | a frame: input → commit → mount items → the platform | `docs/flows/frame.md` |
+| layout: what dirties a tree, measure, place, the frames it emits | `docs/flows/layout.md` |
+| what a signal write re-runs: effects, memos, which nodes get remade | `docs/flows/reactivity.md` |
+| lists: virtualization, the two convergence loops, anchoring | `docs/flows/lists.md` |
+| text: merging spans, measuring, the caches and what invalidates them | `docs/flows/text.md` |
+| building and hot reload: one save to the screen, what restarts | `docs/flows/build.md` |
 
 `docs/flows/*.md` is hand-written and must be edited in the same commit as the behavior it
 describes. Its symbols are checked by `python ~/.workbuddy/skills/flow-map/check.py
