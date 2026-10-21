@@ -292,7 +292,32 @@ function Alignment() {
   );
 }
 
+/**
+ * Line height in the three notations the styles take: a unitless multiple
+ * through Tailwind (`leading-[1.72]`), the same as points (`lineHeight: 20`),
+ * and the font's own. All three have to show every line: a multiple read as
+ * points is 1.72pt, and the lines collapse onto each other.
+ */
+function LineHeight() {
+  const code = "const raf = requestAnimationFrame;\nif (raf) run();\nelse fallback();";
+  return (
+    <Card icon="text" title="Line height" subtitle="A Tailwind multiple, points, and the font's own">
+      <View style={{ gap: 10 }}>
+        <Text testID="lh-tailwind" style={{ fontSize: 12, fontFamily: mono }} class="leading-[1.72]">
+          {code}
+        </Text>
+        <Text testID="lh-points" style={{ fontSize: 12, fontFamily: mono, lineHeight: 20 }}>
+          {code}
+        </Text>
+        <Text testID="lh-font" style={{ fontSize: 12, fontFamily: mono }}>
+          {code}
+        </Text>
+      </View>
+    </Card>
+  );
+}
+
 export function TextDemo() {
-  const cards = [Links, Inline, Fonts, Scaling, Truncation, Cjk, RightToLeft, Alignment];
+  const cards = [Links, Inline, Fonts, Scaling, Truncation, LineHeight, Cjk, RightToLeft, Alignment];
   return <DemoPage cards={cards} />;
 }
