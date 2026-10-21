@@ -874,7 +874,8 @@ fn info_plist(target: Target) -> String {
              <key>MinimumOSVersion</key><string>15.0</string>\n    \
              <key>CFBundleSupportedPlatforms</key><array><string>iPhoneSimulator</string></array>\n    \
              <key>UILaunchScreen</key><dict/>\n    \
-             <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>"
+             <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>\n    \
+             <key>CADisableMinimumFrameDurationOnPhone</key><true/>"
         }
     };
     format!(

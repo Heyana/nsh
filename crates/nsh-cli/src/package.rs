@@ -765,6 +765,9 @@ fn info_plist(
         Value::Dictionary(Default::default()),
     );
     d.insert("UIApplicationSupportsMultipleScenes".into(), false.into());
+    // Lets Core Animation apply the display link's `preferredFrameRateRange`
+    // above 60 Hz on iPhone (ProMotion): without it every hint is capped.
+    d.insert("CADisableMinimumFrameDurationOnPhone".into(), true.into());
     // The app's own appearance, from the launch screen on.
     match config.appearance.as_deref() {
         Some("light") => d.insert("UIUserInterfaceStyle".into(), s("Light")),
