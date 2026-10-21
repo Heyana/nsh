@@ -735,10 +735,19 @@ impl Surface {
     }
 
     fn tick(self: &Rc<Self>, now: f64) {
-        if self.anim.borrow().animating() {
+        // Phase probes: what a frame spends outside the app's own code. Off
+        // (one `Option` test per phase) unless the monitor asks for it.
+        let probe = self.perf.borrow().is_some();
+        let t0 = probe.then(Instant::now);
+        let animating = self.anim.borrow().animating();
+        if animating {
             self.anim.borrow_mut().tick(now);
+        }
+        let t_anim_tick = probe.then(Instant::now);
+        if animating {
             self.write_animations();
         }
+        let t1 = probe.then(Instant::now);
         let callbacks = std::mem::take(&mut *self.frame_callbacks.borrow_mut());
         let mut kept: Vec<FrameCallback> = callbacks
             .into_iter()
@@ -749,10 +758,25 @@ impl Surface {
             kept.append(&mut added);
             *added = kept;
         }
+        let t2 = probe.then(Instant::now);
         if self.js_frame.replace(false) {
             self.control(|c| c.frame());
         }
+        let t3 = probe.then(Instant::now);
         self.revisit();
+        if let (Some(t0), Some(t1), Some(t2), Some(t3)) = (t0, t1, t2, t3) {
+            if let Some(monitor) = self.perf.borrow().as_ref() {
+                monitor.record_phases(
+                    t1 - t0,
+                    t2 - t1,
+                    t3 - t2,
+                    Instant::now() - t3,
+                );
+                if let Some(t) = t_anim_tick {
+                    monitor.record_animation_split(t - t0, t1 - t);
+                }
+            }
+        }
     }
 
     /// Draws views whose drawing changed out of sight and that show now

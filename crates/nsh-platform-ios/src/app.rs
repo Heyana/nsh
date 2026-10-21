@@ -50,6 +50,9 @@ pub struct AppOptions {
     /// `None` uses the app's own data directory
     /// ([`SurfaceOptions::data_dir`]'s default).
     pub data_dir: Option<std::path::PathBuf>,
+    /// Show the performance monitor over the surface
+    /// ([`crate::Surface::set_fps_monitor`]).
+    pub fps: bool,
 }
 
 /// Whether `path` is inside the app's own bundle (which the system verifies
@@ -192,6 +195,7 @@ fn connect(mtm: MainThreadMarker, scene: &UIWindowScene) {
             data_dir: options
                 .data_dir
                 .or_else(|| SurfaceOptions::default().data_dir),
+            fps: options.fps,
             // An app on its own (the development host, the release runner),
             // not a module embedded in another app.
             limits: nsh_engine::Limits::standalone(),

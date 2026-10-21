@@ -87,6 +87,7 @@ pub fn main() {
             trace,
             asset_base,
             data_dir,
+            fps: std::env::args().any(|a| a == "--fps"),
         },
     );
 }
