@@ -252,7 +252,10 @@ impl AppView {
         let mut hud = self.fps.borrow_mut();
         match (show, hud.is_some()) {
             (true, false) => {
-                let log = self.options.borrow().trace;
+                // `NSH_PERF_LOG` logs the readings from a packaged app too; the
+                // HUD's log line is the only way to measure one without an
+                // instrumented build.
+                let log = self.options.borrow().trace || std::env::var_os("NSH_PERF_LOG").is_some();
                 *hud = Some(crate::fps::Hud::show(self, log));
             }
             (false, true) => *hud = None,

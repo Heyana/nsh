@@ -199,6 +199,7 @@ impl Inner {
         }
         let mtm = this.container.mtm();
         let options = state.options.clone();
+        let show_fps = options.fps;
         let surface = match Surface::new(mtm, app, this.container.bounds(), options) {
             Ok(surface) => surface,
             Err(err) => return log::error!("failed to start the engine: {err}"),
@@ -224,6 +225,11 @@ impl Inner {
         }
         // Below development overlays.
         this.container.insertSubview_atIndex(surface.view(), 0);
+        // After the surface is in the container: the HUD goes on the
+        // container, above the surface (macOS's `Hud::show` does the same).
+        if show_fps {
+            surface.set_fps_monitor(true);
+        }
         state.surface = Some(surface);
     }
 

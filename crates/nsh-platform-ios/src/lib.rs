@@ -21,6 +21,7 @@ mod blur;
 mod canvas;
 mod component;
 mod decor;
+mod fps;
 #[cfg(feature = "dev")]
 pub mod dev;
 #[cfg(feature = "embed")]

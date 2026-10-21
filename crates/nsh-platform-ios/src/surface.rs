@@ -2,6 +2,7 @@ use std::{
     cell::{Cell, RefCell},
     io,
     ptr::NonNull,
+    rc::Rc,
     sync::Arc,
 };
 
@@ -113,6 +114,13 @@ pub(crate) struct RootViewIvars {
     host: Cell<nsh_engine::HostEnvironment>,
     /// Keyboard notification registrations.
     observers: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>>,
+    /// The performance monitor's panel, while it shows
+    /// ([`Surface::set_fps_monitor`]).
+    fps: RefCell<Option<Rc<crate::fps::Hud>>>,
+    /// The monitor to install once the engine starts: a surface is created
+    /// before its view has a size, and the engine starts on the first
+    /// non-empty layout ([`RootView::start`]).
+    pending_monitor: RefCell<Option<Arc<nsh_engine::perf::PerfMonitor>>>,
 }
 
 define_class!(
@@ -179,6 +187,8 @@ impl RootView {
             environment: Cell::new(None),
             host: Cell::default(),
             observers: RefCell::new(Vec::new()),
+            fps: RefCell::new(None),
+            pending_monitor: RefCell::new(None),
         });
         // SAFETY: UIView's designated initializer.
         unsafe { msg_send![super(this), initWithFrame: frame] }
@@ -432,6 +442,14 @@ impl RootView {
         ));
         *self.ivars().running.borrow_mut() = Some(Running { engine, mounter });
         self.ivars().environment.set(Some(self.environment()));
+        // A monitor asked for before the engine started (the view had no
+        // size yet) goes in now.
+        if let Some(monitor) = self.ivars().pending_monitor.borrow_mut().take() {
+            log::warn!("perf[start]: installing the pending monitor");
+            self.set_perf_monitor(Some(monitor));
+        } else {
+            log::warn!("perf[start]: no pending monitor");
+        }
     }
 
     /// Stops the engine and removes all native views.
@@ -445,6 +463,28 @@ impl RootView {
         for view in self.subviews() {
             view.removeFromSuperview();
         }
+    }
+
+    /// Times this surface's frames with `monitor` from now on (`None` stops).
+    /// The engine reports its commits to the same monitor.
+    pub(crate) fn set_perf_monitor(&self, monitor: Option<Arc<nsh_engine::perf::PerfMonitor>>) {
+        let mtm = self.mtm();
+        log::warn!(
+            "perf[set_perf_monitor]: running={} monitor={}",
+            self.ivars().running.borrow().is_some(),
+            monitor.is_some()
+        );
+        let running = self.ivars().running.borrow();
+        let Some(running) = running.as_ref() else {
+            // No app yet (the view has no size): kept for `start`.
+            log::warn!("perf[set_perf_monitor]: no engine yet, kept for start");
+            *self.ivars().pending_monitor.borrow_mut() = monitor;
+            return;
+        };
+        if let Some(mounter) = running.mounter.get(mtm).borrow_mut().as_mut() {
+            mounter.set_perf_monitor(monitor.clone());
+        }
+        running.engine.control().set_perf_monitor(monitor);
     }
 }
 
@@ -481,6 +521,9 @@ pub struct SurfaceOptions {
     pub storage: Option<std::path::PathBuf>,
     /// The native components the apps can use (`nsh/native`).
     pub components: crate::component::Components,
+    /// Show the performance monitor once the surface runs
+    /// ([`Surface::set_fps_monitor`]).
+    pub fps: bool,
 }
 
 impl Default for SurfaceOptions {
@@ -493,6 +536,7 @@ impl Default for SurfaceOptions {
             data_dir: data_dir(),
             storage: None,
             components: crate::component::Components::default(),
+            fps: false,
         }
     }
 }
@@ -541,6 +585,32 @@ impl Surface {
     /// exceptions) on the main thread. Errors are logged either way.
     pub fn set_error_handler(&self, handler: impl Fn(&str) + 'static) {
         *self.view.ivars().on_error.get(self.view.mtm()).borrow_mut() = Some(Box::new(handler));
+    }
+
+    /// Shows (or hides) the performance monitor: a panel over the surface
+    /// with the frame rate, what a frame costs the main thread and the
+    /// process' CPU and memory. Measuring starts with it and stops when it
+    /// hides; it survives reloads.
+    pub fn set_fps_monitor(&self, show: bool) {
+        let mtm = self.view.mtm();
+        let ivars = self.view.ivars();
+        let mut hud = ivars.fps.borrow_mut();
+        match (show, hud.is_some()) {
+            (true, false) => *hud = Some(crate::fps::Hud::show(&self.view, mtm)),
+            (false, true) => *hud = None,
+            _ => {}
+        }
+    }
+
+    /// What the performance monitor measured, while it shows
+    /// ([`Surface::set_fps_monitor`]).
+    pub fn perf_monitor(&self) -> Option<std::sync::Arc<nsh_engine::perf::PerfMonitor>> {
+        self.view
+            .ivars()
+            .fps
+            .borrow()
+            .as_ref()
+            .map(|h| h.monitor().clone())
     }
 
     /// Applies a development update to the running app in place. Returns

@@ -74,7 +74,14 @@ pub fn main() {
         use nsh_dev::protocol::{DEFAULT_PORT, WS_PATH};
         AppSource::DevServer(format!("ws://127.0.0.1:{DEFAULT_PORT}{WS_PATH}"))
     });
-    run_app(source, AppOptions { trace, asset_base });
+    run_app(
+        source,
+        AppOptions {
+            trace,
+            asset_base,
+            fps: std::env::args().any(|a| a == "--fps"),
+        },
+    );
 }
 
 /// Verifies and unpacks the package at `path`, trusting `roots`.

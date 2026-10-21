@@ -42,6 +42,9 @@ pub struct AppOptions {
     /// Where bundled image assets are (for [`AppSource::Bundle`]); dev
     /// servers serve them themselves.
     pub asset_base: Option<AssetBase>,
+    /// Show the performance monitor over the surface
+    /// ([`crate::Surface::set_fps_monitor`]).
+    pub fps: bool,
 }
 
 /// Whether `path` is inside the app's own bundle (which the system verifies
@@ -181,6 +184,7 @@ fn connect(mtm: MainThreadMarker, scene: &UIWindowScene) {
         SurfaceOptions {
             trace: options.trace,
             asset_base: options.asset_base,
+            fps: options.fps,
             // An app on its own (the development host, the release runner),
             // not a module embedded in another app; on a Mac (Catalyst) it
             // may hold as much as a desktop app.

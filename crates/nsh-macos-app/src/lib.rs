@@ -53,7 +53,14 @@ fn setup() -> (std::path::PathBuf, nsh_platform_macos::AppOptions) {
     struct Logger;
     impl log::Log for Logger {
         fn enabled(&self, m: &log::Metadata<'_>) -> bool {
-            m.level() <= log::Level::Warn || m.target() == "js" || DEVELOPMENT.get() == Some(&true)
+            // `NSH_PERF_LOG` makes a packaged app print its performance readings
+            // (`--fps` samples them twice a second), which `open` otherwise
+            // sends to /dev/null: measurement without the HUD's log line only
+            // in a development run would mean measuring a different build.
+            DEVELOPMENT.get() == Some(&true)
+                || m.level() <= log::Level::Warn
+                || m.target() == "js"
+                || (m.target() == "nsh::perf" && std::env::var_os("NSH_PERF_LOG").is_some())
         }
         fn log(&self, r: &log::Record<'_>) {
             if self.enabled(r.metadata()) {

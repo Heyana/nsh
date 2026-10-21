@@ -145,6 +145,14 @@ pub struct PerfSnapshot {
     pub engine_busy: f32,
     /// Main-thread cost of the retained frames, oldest first (for a trace).
     pub frames: Vec<Duration>,
+    /// Where a shown frame's main-thread cost went, outside the app's code:
+    /// animations, frame callbacks, the JS frame request, and the rest
+    /// (revisiting views). Zero when the platform has no probes.
+    pub phases: [Stat; 4],
+    /// The animation phase split: stepping the graph, writing the bound
+    /// values into their views.
+    pub anim_tick: Stat,
+    pub anim_write: Stat,
     /// The process' resource use, as last given to [`PerfMonitor::set_process`].
     pub process: ProcessSample,
 }
@@ -175,6 +183,14 @@ struct Inner {
     latencies: VecDeque<Duration>,
     /// Engine wake-ups: when they ended, and how long they were busy.
     busy: VecDeque<(Instant, Duration)>,
+    /// Where a frame's main-thread cost went, outside the app's own code:
+    /// animations, frame callbacks, the JS frame request, and the rest
+    /// (revisiting views whose drawing changed).
+    phases: [VecDeque<Duration>; 4],
+    /// The animation phase split: stepping the graph, and writing the bound
+    /// values into their views.
+    anim_tick: VecDeque<Duration>,
+    anim_write: VecDeque<Duration>,
     process: ProcessSample,
 }
 
@@ -193,6 +209,9 @@ impl Default for PerfMonitor {
                 commit_warmup: WARMUP,
                 latencies: VecDeque::with_capacity(CAPACITY),
                 busy: VecDeque::new(),
+                phases: Default::default(),
+                anim_tick: VecDeque::new(),
+                anim_write: VecDeque::new(),
                 process: ProcessSample::default(),
             }),
         }
@@ -214,6 +233,35 @@ impl PerfMonitor {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
         self.inner.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Main thread: where one frame's cost went, outside the app's code:
+    /// `animations`, `callbacks`, `js_frame` (asking for a JS frame) and
+    /// `rest` (revisiting views whose drawing changed). The four add up to
+    /// what [`PerfMonitor::record_work`] is given for the same frame.
+    pub fn record_phases(
+        &self,
+        animations: Duration,
+        callbacks: Duration,
+        js_frame: Duration,
+        rest: Duration,
+    ) {
+        let mut inner = self.lock();
+        for (queue, cost) in inner
+            .phases
+            .iter_mut()
+            .zip([animations, callbacks, js_frame, rest])
+        {
+            push(queue, cost);
+        }
+    }
+
+    /// Main thread: the animation phase split: `tick` stepped the graph and
+    /// `write` put the bound values into their views.
+    pub fn record_animation_split(&self, tick: Duration, write: Duration) {
+        let mut inner = self.lock();
+        push(&mut inner.anim_tick, tick);
+        push(&mut inner.anim_write, write);
     }
 
     /// Main thread: `cost` was spent on the surface; `dirty` if it changed
@@ -377,6 +425,9 @@ impl PerfMonitor {
             latency: Stat::of(inner.latencies.iter().copied()),
             engine_busy: busy.as_secs_f32() / RATE_WINDOW.as_secs_f32() * 100.0,
             frames: inner.frames.iter().map(|&(_, cost)| cost).collect(),
+            phases: std::array::from_fn(|i| Stat::of(inner.phases[i].iter().copied())),
+            anim_tick: Stat::of(inner.anim_tick.iter().copied()),
+            anim_write: Stat::of(inner.anim_write.iter().copied()),
             process: inner.process,
         }
     }

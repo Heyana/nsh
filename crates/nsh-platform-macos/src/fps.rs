@@ -47,7 +47,7 @@ use crate::{app::AppView, surface::Surface};
 /// How often the readings are redrawn.
 const INTERVAL_MS: u64 = 500;
 /// The panel's width and its distance from the view's edges (points).
-const WIDTH: CGFloat = 262.0;
+const WIDTH: CGFloat = 236.0;
 const MARGIN: CGFloat = 10.0;
 const PADDING: CGFloat = 8.0;
 const GRAPH_HEIGHT: CGFloat = 36.0;
@@ -344,10 +344,24 @@ fn log_line(s: &PerfSnapshot) -> String {
         st(&s.latency),
         s.process.cpu.unwrap_or(0.0),
         s.process.gpu.unwrap_or(0.0),
+    ) + &format!(
+        " | anim {} cb {} jsframe {} rest {} | animtick {} animwrite {}",
+        st(&s.phases[0]),
+        st(&s.phases[1]),
+        st(&s.phases[2]),
+        st(&s.phases[3]),
+        st(&s.anim_tick),
+        st(&s.anim_write),
     )
 }
 
-/// The panel's text.
+/// The panel's text: one reading per line, each labelled, so nothing has to
+/// be decoded by column position.
+///
+/// What a frame costs and whether any were dropped come first (what one
+/// looks at); the distributions, commit counts and engine-side splits stay in
+/// the log line ([`log_line`], `--trace`), where they are read with the
+/// profiler rather than glanced at.
 fn readings(s: &PerfSnapshot) -> String {
     let rate = s
         .refresh_rate
@@ -357,28 +371,26 @@ fn readings(s: &PerfSnapshot) -> String {
         .process
         .memory
         .map_or_else(|| "-".to_owned(), |m| format!("{:.0} MB", m as f64 / 1e6));
+    // A frame's budget at the display's rate: what a drop is measured against.
+    let budget = s
+        .refresh_rate
+        .map(|r| format!("{:.2} ms", 1000.0 / r.max(1.0)))
+        .unwrap_or_else(|| "-".to_owned());
     format!(
-        "{:4.0} FPS   max {:.0} · {rate}\n\
-         TICK {}  gap {:.1}\n\
-         MAIN {}  drop {:.0}%\n\
-         JS   {}  {:.0}/s\n\
-         CORE {}  {:.0} items\n\
-         HOP  {}  eng {:.0}%\n\
-         CPU {}  GPU {}  MEM {memory}",
+        "{:.0} FPS\n\
+         display {rate} · max {:.0}\n\
+         frame {:.2} ms\n\
+         frame p95 {:.2} ms\n\
+         budget {budget}\n\
+         drop {:.0}%\n\
+         cpu {}\n\
+         mem {memory}",
         s.fps,
         s.max_fps,
-        stat(&s.tick_interval),
-        ms(s.frame_interval.p95),
-        stat(&s.frame),
+        ms(s.frame.mean),
+        ms(s.frame.p95),
         s.dropped * 100.0,
-        stat(&s.js),
-        s.commits,
-        stat(&s.layout),
-        s.items,
-        stat(&s.latency),
-        s.engine_busy,
         percent(s.process.cpu),
-        percent(s.process.gpu),
     )
 }
 
@@ -389,7 +401,9 @@ mod tests {
     #[test]
     fn readings_of_an_empty_snapshot() {
         let text = readings(&PerfSnapshot::default());
-        assert!(text.starts_with("   0 FPS   max 0 · -"));
-        assert!(text.contains("CPU -  GPU -  MEM -"));
+        assert!(text.starts_with("0 FPS\n"));
+        assert!(text.contains("display - · max 0"));
+        assert!(text.contains("drop 0%"));
+        assert!(text.contains("cpu -"));
     }
 }

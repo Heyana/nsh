@@ -357,6 +357,16 @@ pub(crate) struct Mounter {
     disappearing: rustc_hash::FxHashSet<NodeId>,
     /// One-shot display link for `requestAnimationFrame`.
     frame_link: Retained<objc2_quartz_core::CADisplayLink>,
+    /// The performance monitor of this surface, once one is installed
+    /// ([`nsh_engine::perf::PerfMonitor`]): main-thread frame costs and the
+    /// commits the engine reports. `None`: nothing is timed.
+    perf: Option<std::sync::Arc<nsh_engine::perf::PerfMonitor>>,
+    /// Frames timed so far (logging the first few).
+    perf_frames: std::cell::Cell<u32>,
+    /// Whether this refresh changes what the screen shows: a batch was
+    /// applied, an animation stepped, a scroll view moved, or JS asked for a
+    /// frame. The monitor counts the frames that did.
+    dirty: bool,
     /// Parents of screens, header items and modals (which are not
     /// subviews of their parent).
     hosts: rustc_hash::FxHashMap<NodeId, NodeId>,
@@ -434,6 +444,9 @@ impl Mounter {
             created: Vec::new(),
             disappearing: Default::default(),
             frame_link: crate::animation::frame_link(&target_for_link),
+            perf: None,
+            perf_frames: std::cell::Cell::new(0),
+            dirty: false,
             hosts: Default::default(),
             dirty_stacks: Vec::new(),
             deferred_stacks: Vec::new(),
@@ -451,6 +464,11 @@ impl Mounter {
     }
 
     pub(crate) fn apply(&mut self, batch: MountBatch) {
+        // A batch means the screen changes: the monitor counts this refresh
+        // as a shown frame. The work happens here, not on the display link
+        // (which only closes the frame), so it is timed here.
+        let start = std::time::Instant::now();
+        self.dirty = true;
         let mut animation_changed = false;
         for item in batch.items {
             animation_changed |= self.apply_item(item);
@@ -465,6 +483,9 @@ impl Mounter {
         }
         self.report_finished();
         self.start_image_loads();
+        if let Some(monitor) = &self.perf {
+            monitor.record_work(start.elapsed(), true);
+        }
     }
 
     #[inline]
@@ -2879,6 +2900,9 @@ impl Mounter {
     }
 
     pub(crate) fn scrolled(&mut self, id: NodeId, offset: CGPoint) {
+        // A scroll moves what the screen shows, and costs the main thread.
+        let start = std::time::Instant::now();
+        self.dirty = true;
         self.pin_sticky(id);
         let Some(s) = self.slot(id) else { return };
         if let Some(node) = s.scroll_value {
@@ -2887,15 +2911,65 @@ impl Mounter {
             self.apply_animations();
             self.report_finished();
         }
+        if let Some(monitor) = &self.perf {
+            monitor.record_work(start.elapsed(), true);
+        }
     }
 
     /// Display link frame.
     pub(crate) fn tick(&mut self) {
-        if self.animator.tick() {
+        let Some(monitor) = self.perf.clone() else {
+            self.tick_untimed();
+            return;
+        };
+        // What this frame cost the main thread, and whether it changed what
+        // the screen shows: the monitor counts frames that did (`vsync`
+        // closes one at each refresh).
+        // A JS frame was asked for: the next display frame runs it.
+        let js_frame = !self.frame_link.isPaused();
+        let start = std::time::Instant::now();
+        let stepped = self.tick_untimed();
+        let cost = start.elapsed();
+        let dirty = stepped || js_frame || std::mem::take(&mut self.dirty);
+        monitor.record_work(cost, dirty);
+        // The display link's target timestamps give the refresh period.
+        let (now, period) = self.animator.frame_timing();
+        monitor.vsync(now, period);
+        self.perf_frames.set(self.perf_frames.get() + 1);
+        if self.perf_frames.get() <= 5 {
+            log::warn!(
+                "perf[6/6]: frame #{} cost={:.2}ms dirty={} period={:.2}ms",
+                self.perf_frames.get(),
+                cost.as_secs_f32() * 1000.0,
+                dirty,
+                period.as_secs_f32() * 1000.0
+            );
+        }
+    }
+
+    /// One frame, without timing it. Returns whether it changed what the
+    /// screen shows (the monitor counts frames that did).
+    fn tick_untimed(&mut self) -> bool {
+        let changed = self.animator.tick();
+        if changed {
             self.apply_animations();
         }
         self.report_finished();
+        changed
     }
+
+    /// Installs (or removes) the performance monitor: what frames cost from
+    /// now on. The engine reports its commits to the same monitor once
+    /// `EngineControl::set_perf_monitor` has it.
+    pub(crate) fn set_perf_monitor(
+        &mut self,
+        monitor: Option<std::sync::Arc<nsh_engine::perf::PerfMonitor>>,
+    ) {
+        log::warn!("perf[5/6]: mounter.set_perf_monitor({})", monitor.is_some());
+        self.animator.set_always_running(monitor.is_some());
+        self.perf = monitor;
+    }
+
 
     fn apply_animations(&mut self) {
         let animator = &self.animator;

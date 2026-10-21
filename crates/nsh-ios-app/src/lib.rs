@@ -72,6 +72,9 @@ fn setup() -> (std::path::PathBuf, nsh_platform_ios::AppOptions) {
     let options = AppOptions {
         trace: false,
         asset_base: Some(AssetBase::Directory(dir.join("assets"))),
+        // The monitor shows unless `NSH_FPS=0` (`--fps` means the same on
+        // the desktop runners; a device's app is launched without arguments).
+        fps: std::env::var_os("NSH_FPS").is_none_or(|v| v != "0"),
     };
     (dir, options)
 }
