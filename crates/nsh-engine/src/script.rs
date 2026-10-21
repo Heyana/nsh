@@ -130,6 +130,14 @@ mod imp {
 
         /// Gives the VM a chunk it imports, or tells it the chunk could not
         /// be loaded.
+        /// Installs what `nsh/perf`'s `snapshot()` reads.
+        pub(crate) fn set_perf_source(
+            &self,
+            source: Option<std::rc::Rc<dyn nsh_js::PerfSource>>,
+        ) {
+            self.host.set_perf_source(source);
+        }
+
         pub(crate) fn chunk(&self, chunk: Result<Chunk, (String, String)>) {
             match chunk {
                 Ok(chunk) => {

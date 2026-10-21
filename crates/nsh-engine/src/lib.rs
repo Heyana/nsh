@@ -1119,6 +1119,14 @@ impl<M: TextEngine + 'static> Driver<M> {
                     stop,
                     sink,
                 )?;
+                // The monitor may have been set before the VM started
+                // (`set_perf_monitor` right after `start`), so `nsh/perf`
+                // reads it from the first call on, not only on later changes.
+                if let Some(monitor) = driver.state.perf.clone() {
+                    script.set_perf_source(Some(std::rc::Rc::new(perf::MonitorSource(
+                        monitor,
+                    ))));
+                }
                 driver.script = Some(script);
                 eval_us
             }
@@ -1909,8 +1917,15 @@ fn handle<M: TextEngine>(script: Option<&Script>, state: &mut State<M>, message:
             }
         }
         Message::Perf(monitor) => {
-            state.perf = monitor;
+            state.perf = monitor.clone();
             state.perf_commit = perf::CommitTiming::default();
+            if let Some(script) = script {
+                // `nsh/perf` reads the same monitor the engine measures with:
+                // one reading, whichever side asks.
+                script.set_perf_source(
+                    monitor.map(|m| std::rc::Rc::new(perf::MonitorSource(m)) as std::rc::Rc<dyn nsh_js::PerfSource>),
+                );
+            }
         }
         Message::Theme(theme) => state.core.set_host_theme(theme.map(|t| *t)),
         Message::Shutdown => return false,

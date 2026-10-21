@@ -20,6 +20,8 @@ mod declarations;
 mod desktop;
 mod dom;
 mod env;
+
+pub use env::{PerfSource, set_perf_source};
 mod error;
 mod host;
 mod hot;

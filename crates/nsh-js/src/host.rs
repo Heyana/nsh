@@ -625,6 +625,15 @@ impl Host {
         self.ctx.with(|ctx| f(ctx.as_raw().as_ptr()))
     }
 
+    /// Installs `nsh/perf`'s source (the engine's performance monitor):
+    /// [`crate::PerfSource::snapshot_json`] is what `snapshot()` hands back,
+    /// parsed. `None` while no monitor measures (`snapshot()` returns
+    /// `null`).
+    pub fn set_perf_source(&self, source: Option<std::rc::Rc<dyn crate::PerfSource>>) {
+        self.ctx
+            .with(|ctx| crate::env::set_perf_source(ctx.as_raw().as_ptr(), source));
+    }
+
     /// Whether an exception is pending outside any call (none should be).
     #[cfg(test)]
     pub(crate) fn has_exception(&self) -> bool {

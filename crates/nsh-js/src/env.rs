@@ -9,6 +9,7 @@ use std::{
     cell::{Cell, RefCell},
     ffi::{CStr, c_int},
     ptr,
+    rc::Rc,
 };
 
 use nsh_core::platform::{Appearance, ColorScheme, Environment, Idiom, Os};
@@ -60,6 +61,9 @@ pub(crate) struct Env {
     /// (else reduced motion), function owned).
     listeners: RefCell<Vec<(u32, bool, JsValue)>>,
     next_listener: Cell<u32>,
+    /// `nsh/perf`'s readings: the engine owns the monitor (`nsh-engine` sits
+    /// above this crate), so it installs a [`PerfSource`].
+    perf: RefCell<Option<Rc<dyn PerfSource>>>,
 }
 
 impl Default for Env {
@@ -74,6 +78,7 @@ impl Default for Env {
             insets: Cell::new(UNDEFINED),
             listeners: RefCell::new(Vec::new()),
             next_listener: Cell::new(1),
+            perf: RefCell::new(None),
         }
     }
 }
@@ -672,6 +677,68 @@ unsafe extern "C" fn force_rtl(
 }
 
 /// The exports of `nsh/device`.
+/// What `nsh/perf` reads: the performance monitor of the engine that owns
+/// this VM. `nsh-engine` implements it for its monitor, which this crate
+/// cannot name (it sits above it).
+pub trait PerfSource {
+    /// The latest readings, as the JSON `snapshot()` hands back parsed.
+    fn snapshot_json(&self) -> String;
+}
+
+/// Installs `nsh/perf`'s source: the engine calls it when a monitor is set,
+/// so the readings and the engine's own measurements are the same numbers.
+pub fn set_perf_source(ctx: *mut JsContext, source: Option<Rc<dyn PerfSource>>) {
+    *env(ctx).perf.borrow_mut() = source;
+}
+
+/// `nsh/perf`'s `snapshot()`: the monitor's readings as JSON, `null` while
+/// no monitor measures.
+unsafe extern "C" fn perf_snapshot(
+    ctx: *mut JsContext,
+    _this: JsValue,
+    _argc: c_int,
+    _argv: *mut JsValue,
+) -> JsValue {
+    let source = env(ctx).perf.borrow().clone();
+    let Some(source) = source else {
+        // SAFETY: a fresh value on a live context.
+        return unsafe { qjs::JS_NULL };
+    };
+    // The JSON the engine built; `JSON.parse` reads it here so apps get an
+    // object without a parse step of their own.
+    let json = source.snapshot_json();
+    // SAFETY: the global object and `JSON` exist on a live context; every
+    // value made here is owned (freed after the call).
+    unsafe {
+        let global = qjs::JS_GetGlobalObject(ctx);
+        let json_obj = qjs::JS_GetPropertyStr(ctx, global, c"JSON".as_ptr().cast());
+        let parse = qjs::JS_GetPropertyStr(ctx, json_obj, c"parse".as_ptr().cast());
+        let text = qjs::JS_NewStringLen(ctx, json.as_ptr().cast(), json.len() as _);
+        let parsed = if qjs::JS_IsException(text) || qjs::JS_IsException(parse) {
+            qjs::JS_NULL
+        } else {
+            let mut arg = [text];
+            qjs::JS_Call(ctx, parse, json_obj, 1, arg.as_mut_ptr())
+        };
+        qjs::JS_FreeValue(ctx, text);
+        qjs::JS_FreeValue(ctx, parse);
+        qjs::JS_FreeValue(ctx, json_obj);
+        qjs::JS_FreeValue(ctx, global);
+        parsed
+    }
+}
+
+/// `nsh/perf`: what the performance monitor measured (`nsh/perf`'s only
+/// export so far, `snapshot()`).
+pub(crate) const PERF_EXPORTS: &[Item] = &[(
+    "snapshot",
+    Export::Function(perf_snapshot, 0),
+    Ts::function(
+        "The performance monitor's latest readings as an object, or `null`\nwhile no monitor measures (`AppOptions::fps`, `setFpsMonitor`).\nSampled twice a second by the monitor itself; call it from a timer to\ndraw them.",
+        &["(): PerfSnapshot | null"],
+    ),
+)];
+
 pub(crate) const DEVICE_EXPORTS: &[Item] = &[
     (
         "windowSize",
@@ -740,6 +807,42 @@ pub(crate) const DEVICE_EXPORTS: &[Item] = &[
 ];
 
 /// `nsh/device`'s types.
+pub(crate) const PERF_TYPES: &str = r#"export interface PerfSnapshot {
+  /** Frames shown per second over the last second: display refreshes in which the surface changed. Low while the app is idle, which is not slowness. */
+  fps: number;
+  /** The display's maximum frame rate. */
+  maxFps: number;
+  /** The display's refresh rate (Hz), when the platform reports one. */
+  refreshRate: number | null;
+  /** Mean distance between display refreshes (ms). */
+  tickInterval: number;
+  /** Mean distance between presented frames (ms). */
+  frameInterval: number;
+  /** Mean work per frame (ms). */
+  frame: number;
+  /** Median work per frame (ms). */
+  frameP50: number;
+  /** 95th percentile of the work per frame (ms): what a janky frame costs. */
+  frameP95: number;
+  /** The most expensive frame of the window (ms). */
+  frameMax: number;
+  /** Share of refreshes in which the surface did not change. */
+  dropped: number;
+  /** Commits in the window. */
+  commits: number;
+  /** Mean JS time per frame (ms). */
+  js: number;
+  /** Process CPU use (%), when the platform samples it. */
+  cpu: number | null;
+  /** Process GPU use (%), when the platform samples it. */
+  gpu: number | null;
+  /** Resident memory (bytes), when the platform samples it. */
+  memory: number | null;
+}
+
+export declare function snapshot(): PerfSnapshot | null;
+"#;
+
 pub(crate) const DEVICE_TYPES: &str = r#"export interface PlatformSelectSpec<T> {
   ios?: T;
   android?: T;
