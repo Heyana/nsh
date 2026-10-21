@@ -269,6 +269,22 @@ fn tailwind_colors_win_over_tokens_and_tokens_come_from_the_theme() {
 }
 
 #[test]
+fn leading_arbitrary() {
+    // A bare number is a multiple of the font size, as in CSS and as the
+    // named `leading-*` utilities are; `px` stays points.
+    let s = styled("leading-[1.72]");
+    assert_eq!(s.text.line_height_multiple, Some(1.72));
+    assert_eq!(s.text.line_height, None);
+
+    let s = styled("leading-[1.72em]");
+    assert_eq!(s.text.line_height_multiple, Some(1.72));
+
+    let s = styled("leading-[20px]");
+    assert_eq!(s.text.line_height, Some(px(20.0)));
+    assert_eq!(s.text.line_height_multiple, None);
+}
+
+#[test]
 fn typography() {
     let s = styled(
         "text-lg font-semibold italic tracking-wide leading-tight underline decoration-wavy decoration-red-500 uppercase text-center tabular-nums",

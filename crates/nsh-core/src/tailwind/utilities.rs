@@ -1472,6 +1472,14 @@ static PREFIXES: &[(&str, Handler)] = &[
         if let Some(m) = t.leading.get(v) {
             return one(sets(K::LineHeight, &m.to_string()));
         }
+        // `leading-[1.72]`: a bare number is a multiple of the font size
+        // (`1.72`, `1.72em`), not points like `leading-[20px]`.
+        if let Some(s) = arbitrary(v) {
+            let bare = s.strip_suffix("em").unwrap_or(&s);
+            if css::number(bare).is_some() {
+                return one(sets(K::LineHeight, bare));
+            }
+        }
         match length_value(t, v, false, false)? {
             PatchValue::Number(n) => one(setn(K::LineHeight, n)),
             _ => None,
