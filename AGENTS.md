@@ -152,6 +152,10 @@ one change travels through.
 describes. Its symbols are checked by `python ~/.workbuddy/skills/flow-map/check.py
 docs/flows/<page>.md .`: a hit rate below 90% means the page no longer describes this tree.
 
+A page says which commit it was written against, because a fork's `main` lags `upstream/main`: at
+this writing `reactivity.md` describes the upstream shape (after #174 / #216), which is not in this
+checkout yet. Read its header before trusting a symbol to exist here.
+
 ## Documentation
 
 | Changing | Read |
