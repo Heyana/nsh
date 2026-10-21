@@ -162,6 +162,21 @@ imports against the names native modules export); `nsh-base` depends on `nsh-cor
 are never linked into the CLI: it reads their UI sets as data (`nsh_core::ui::description`); the hosts and runners
 `rust_app.rs` generates link them. `nsh-core` must not depend on any platform or JS crate.
 
+## Flow index
+
+Read a row before reading code. Each row is one path something takes through nsh, end to end; the
+page it names holds the stages, the contracts between them and the invariants each one keeps —
+what a code graph cannot tell you. The layout above says what each crate is; this says which crates
+one change travels through.
+
+| Changing | Read |
+|---|---|
+| a frame: input → commit → mount items → the platform | `docs/flows/frame.md` |
+
+`docs/flows/*.md` is hand-written and must be edited in the same commit as the behavior it
+describes. Its symbols are checked by `python ~/.workbuddy/skills/flow-map/check.py
+docs/flows/<page>.md .`: a hit rate below 90% means the page no longer describes this tree.
+
 ## Documentation
 
 | Changing | Read |
