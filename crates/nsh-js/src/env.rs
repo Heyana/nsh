@@ -66,10 +66,6 @@ pub(crate) struct Env {
     /// a token follows a new theme.
     tokens_signal: Cell<JsValue>,
     tokens_version: Cell<u32>,
-    /// `AccessibilityInfo.addEventListener` listeners: (id, screen reader
-    /// (else reduced motion), function owned).
-    listeners: RefCell<Vec<(u32, bool, JsValue)>>,
-    next_listener: Cell<u32>,
     /// `nsh/perf`'s readings: the engine owns the monitor (`nsh-engine` sits
     /// above this crate), so it installs a [`PerfSource`].
     perf: RefCell<Option<Rc<dyn PerfSource>>>,
@@ -86,8 +82,6 @@ impl Default for Env {
             tokens: RefCell::new(Arc::default()),
             tokens_signal: Cell::new(UNDEFINED),
             tokens_version: Cell::new(0),
-            listeners: RefCell::new(Vec::new()),
-            next_listener: Cell::new(1),
             perf: RefCell::new(None),
         }
     }
@@ -574,8 +568,7 @@ unsafe extern "C" fn perf_snapshot(
 ) -> JsValue {
     let source = env(ctx).perf.borrow().clone();
     let Some(source) = source else {
-        // SAFETY: a fresh value on a live context.
-        return unsafe { qjs::JS_NULL };
+        return qjs::JS_NULL;
     };
     // The JSON the engine built; `JSON.parse` reads it here so apps get an
     // object without a parse step of their own.

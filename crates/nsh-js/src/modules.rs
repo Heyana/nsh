@@ -354,6 +354,8 @@ pub(crate) const MODULES: &[NativeModule] = &[
     NativeModule {
         name: "nsh/perf",
         exports: env::PERF_EXPORTS,
+        also: &[],
+        moved_to: None,
         types: decl!(env::PERF_TYPES),
     },
     NativeModule {

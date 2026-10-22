@@ -2,7 +2,6 @@ use std::{
     cell::{Cell, RefCell},
     io,
     ptr::NonNull,
-    rc::Rc,
     sync::Arc,
 };
 
