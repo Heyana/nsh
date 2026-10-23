@@ -1,7 +1,9 @@
-//! `TabBar`: the system's tab bar, a native component of the iOS and
-//! Android backends (`nsh_core::platform::TAB_BAR_COMPONENT`).
+//! What iOS and Android both have and the other platforms do not (TS
+//! `nsh/mobile`): the system's tab bar ([`TabBar`]), a native component the
+//! two backends register themselves ([`TAB_BAR_COMPONENT`]). Elsewhere a
+//! component takes no room and shows nothing.
 
-use nsh_core::{
+use crate::{
     JsonValue,
     platform::{Os, TAB_BAR_COMPONENT},
     ui::{NativeEvent, native, prelude::*},
@@ -67,7 +69,7 @@ pub enum TabBarEvent {
 /// `style` and shows the selected tab's content; the bar's height is the
 /// system's where the style leaves it open. The desktops and the web have no
 /// system tab bar: there it takes no room and shows nothing, and the app
-/// shows its tabs with [`Tabs`](crate::Tabs).
+/// shows its tabs with `nsh/base`'s `Tabs`.
 #[component]
 pub fn TabBar(props: TabBarProps, cx: Scope<TabBarEvent>) -> impl IntoElement {
     if !matches!(os(), Os::Ios | Os::Android) {

@@ -25,7 +25,7 @@ import java.util.Map;
 import java.util.function.BooleanSupplier;
 
 /**
- * {@code nsh/base}'s {@code TabBar} on Android: Material 3's navigation bar
+ * {@code nsh/mobile}'s {@code TabBar} on Android: Material 3's navigation bar
  * (the system's look, as {@code NavStack}'s toolbar has it), made of the
  * framework's views: each tab an icon in its active indicator over its label,
  * in the system's dynamic colors on Android 12 and later and Material's

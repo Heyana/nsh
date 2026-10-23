@@ -1,4 +1,4 @@
-//! `nsh/base`'s `TabBar` on iOS: a `UITabBar` with the system appearance.
+//! `nsh/mobile`'s `TabBar` on iOS: a `UITabBar` with the system appearance.
 //! The app places it and decides what each tab shows; the component reports
 //! its intrinsic height while its container owns its frame.
 

@@ -6,7 +6,7 @@ pub mod clipboard;
 
 use crate::geometry::{Edges, Points, Size};
 
-/// The native component of `nsh/base`'s `TabBar`, which the iOS and
+/// The native component of `nsh/mobile`'s `TabBar`, which the iOS and
 /// Android backends register themselves (`TabBarComponent.java`'s `NAME` keeps
 /// the same name).
 pub const TAB_BAR_COMPONENT: &str = "nsh/tab-bar";

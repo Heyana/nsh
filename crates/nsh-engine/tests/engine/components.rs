@@ -2674,7 +2674,7 @@ fn a_base_progress_shows_the_apps_value_in_its_indicator() {
 }
 
 const TAB_BAR: &str = r##"import { mount, signal } from "nsh";
-import { TabBar } from "nsh/base";
+import { TabBar } from "nsh/mobile";
 
 const selected = signal(0);
 
@@ -2699,8 +2699,8 @@ fn is_tab_bar(item: &MountItem) -> bool {
         if &**name == nsh_core::platform::TAB_BAR_COMPONENT)
 }
 
-/// `nsh/base`'s `TabBar` is the system's component on iOS and Android, given
-/// the tabs as the app wrote them.
+/// `nsh/mobile`'s `TabBar` is the system's component on iOS and Android,
+/// given the tabs as the app wrote them.
 #[test]
 fn the_tab_bar_is_the_systems_component_on_ios_and_android() {
     use nsh_core::platform::Os;
@@ -2739,17 +2739,31 @@ fn the_tab_bar_is_the_systems_component_on_ios_and_android() {
     }
 }
 
-/// Where the system has no tab bar it renders nothing: no component at all.
+/// Where the system has no tab bar it renders nothing: no component at all;
+/// `isAvailable` tells which platforms `nsh/mobile` serves.
 #[test]
 fn the_tab_bar_renders_nothing_on_the_desktops_and_the_web() {
     use nsh_core::platform::Os;
 
     let app = TAB_BAR
         .replace("mount, signal", "mount, signal, Text")
+        .replace("import { TabBar }", "import { TabBar, isAvailable }")
         .replace(
             "mount(App);",
-            "mount(() => <><App /><Text>Ready</Text></>);",
+            "mount(() => <><App /><Text>{`Ready: ${isAvailable}`}</Text></>);",
         );
+    for (os, available) in [(Os::Ios, true), (Os::Android, true)] {
+        let (_engine, rx) = start_in(
+            &app,
+            Environment {
+                os,
+                ..Environment::default()
+            },
+        );
+        let ready = format!("Ready: {available}");
+        let batches = until(&rx, |batch| shows(batch, &ready));
+        assert!(batches.iter().any(|batch| shows(batch, &ready)), "{os:?}");
+    }
     for os in [Os::MacOs, Os::Windows, Os::Linux, Os::Web] {
         let (_engine, rx) = start_in(
             &app,
@@ -2758,8 +2772,11 @@ fn the_tab_bar_renders_nothing_on_the_desktops_and_the_web() {
                 ..Environment::default()
             },
         );
-        let batches = until(&rx, |batch| shows(batch, "Ready"));
-        assert!(batches.iter().any(|batch| shows(batch, "Ready")), "{os:?}");
+        let batches = until(&rx, |batch| shows(batch, "Ready: false"));
+        assert!(
+            batches.iter().any(|batch| shows(batch, "Ready: false")),
+            "{os:?}"
+        );
         let platform = batches
             .iter()
             .any(|batch| batch.items.iter().any(is_tab_bar));
@@ -2772,7 +2789,7 @@ fn the_tab_bar_renders_nothing_on_the_desktops_and_the_web() {
 #[test]
 fn the_tab_bar_reports_the_users_choice_and_follows_its_props() {
     let app = r#"import { mount, signal, Text, View } from "nsh";
-import { TabBar } from "nsh/base";
+import { TabBar } from "nsh/mobile";
 const selected = signal<number | undefined>(0);
 const items = signal([{ title: "Records" }, { title: "Stats" }]);
 mount(() => <View>
