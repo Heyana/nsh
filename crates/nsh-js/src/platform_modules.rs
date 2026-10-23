@@ -486,7 +486,6 @@ fn native_spec(cx: *mut JsContext, props: &[&str], events: &[&str]) -> JsValue {
 
 /// `nsh/ios`'s `TabBar`: the system's tab bar, iOS only.
 fn tab_bar(cx: *mut JsContext) -> JsValue {
-    log::info!("nsh/ios TabBar: os={:?}", os(cx));
     if os(cx) != Os::Ios {
         // Elsewhere there is no system bar: the app draws one with `Tabs`.
         return reactive::new_function(cx, c"TabBar", nothing, 1);
@@ -514,7 +513,7 @@ pub(crate) const IOS_EXPORTS: &[Item] = &[
         "TabBar",
         Export::Value(tab_bar),
         Ts::function(
-            "The system's tab bar (iOS's `UITabBar`: Liquid Glass, the selection pill,\nthe bar shrinking as the content scrolls). It renders nothing where no system\nbar exists. It takes its space from `style` (`position: \"absolute\"`, `left`,\n`right`, `bottom`), as a native view does.",
+            "The system's tab bar (iOS's `UITabBar`, with the system appearance).\nIt renders nothing where no system bar exists. It takes its space from `style` (`position: \"absolute\"`, `left`,\n`right`, `bottom`), as a native view does.",
             &["(props: TabBarProps): YNode | null"],
         ),
     ),
@@ -540,7 +539,7 @@ pub(crate) const IOS_TYPES: &str = r#"export interface TabBarProps {
   items: string[];
   /** An SF Symbol's name for each tab, by the same index. */
   icons?: string[];
-  /** The selected tab, by index. */
+  /** The selected tab, by index; defaults to 0. */
   selected?: number;
   /** A tab the user chose. */
   onSelect?: (index: number) => void;

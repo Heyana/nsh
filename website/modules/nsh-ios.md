@@ -1,6 +1,6 @@
 ---
 title: nsh/ios
-description: "iOS-only APIs: isAvailable and InputAccessoryView, a bar over the keyboard."
+description: "iOS-only APIs: isAvailable, TabBar and InputAccessoryView."
 order: 11
 ---
 
@@ -25,6 +25,48 @@ const isAvailable: boolean;
 ```
 
 `true` on iOS, the iOS simulator and Mac Catalyst; `false` elsewhere. Rust: `os() == Os::Ios`.
+
+## TabBar
+
+```ts
+function TabBar(props: TabBarProps): YNode | null;
+
+interface TabBarProps {
+  items: string[];
+  icons?: string[];
+  selected?: number;
+  onSelect?: (index: number) => void;
+  style?: StyleProp<ViewStyle>;
+  class?: string;
+}
+```
+
+UIKit's system tab bar, placed by the app. `items` supplies titles in order;
+`icons` supplies SF Symbol names at the same indices. `selected` defaults to 0,
+and `onSelect(index)` reports the tab the user chooses. Update `selected` in
+that callback to follow the user's choice. Removing `icons` clears the symbols;
+removing `selected` restores index 0.
+
+The bar uses the system appearance for the current iOS version. Its container
+sets its frame from `style` and `class`; its intrinsic height is measured at the
+laid-out width when height is automatic. The app places the bar and its content
+and applies safe-area insets for its layout. This component provides the bar;
+scrolling behavior belongs to the app's content and navigation.
+
+```tsx
+import { signal } from "nsh";
+import { TabBar } from "nsh/ios";
+
+const selected = signal(0);
+
+<TabBar
+  items={["Records", "Stats"]}
+  icons={["list.bullet.rectangle", "chart.bar"]}
+  selected={selected()}
+  onSelect={(index) => selected.set(index)}
+  style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+/>;
+```
 
 ## InputAccessoryView
 

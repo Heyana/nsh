@@ -1,9 +1,6 @@
-//! `nsh/tabbar`: the platform's tab bar, a `UITabBar`. iOS 26 draws it with
-//! Liquid Glass, its floating capsule and selection pill, and shrinks it as
-//! the app's content scrolls, as the system's own tab bar does.
-//!
-//! `nsh/base`'s `TabBar` renders it through `native("nsh/tabbar")` and wires
-//! its `select` event; the app decides what each tab shows.
+//! `nsh/ios`'s `TabBar`: a `UITabBar` with the system appearance.
+//! The app places it and decides what each tab shows; the component reports
+//! its intrinsic height while its container owns its frame.
 
 use std::{
     cell::{Cell, RefCell},
@@ -33,6 +30,8 @@ struct BarIvars {
     /// the layout that sizes it, so the first `setItems:` lands at width 0
     /// and draws nothing until the bar is laid out again.
     width: Cell<f64>,
+    height: Cell<f64>,
+    context: ComponentContext,
 }
 
 define_class!(
@@ -55,15 +54,29 @@ define_class!(
         /// before that draw nothing.
         #[unsafe(method(didMoveToWindow))]
         fn did_move_to_window(&self) {
+            // SAFETY: forwarding UIView's callback to its superclass on the main thread.
             let _: () = unsafe { msg_send![super(self), didMoveToWindow] };
             show(self, &self.ivars().items.borrow(), self.ivars().selected.get());
         }
 
         #[unsafe(method(layoutSubviews))]
         fn layout_subviews(&self) {
+            // UIKit can give the bar its natural height before the host is
+            // sized. Flexible-height autoresizing then adds the host's height
+            // to that initial size; fill the host exactly instead.
+            if let Some(host) = self.superview() {
+                let frame = host.bounds();
+                if self.frame() != frame {
+                    self.setFrame(frame);
+                }
+            }
             // SAFETY: the superclass' own layout.
             let _: () = unsafe { msg_send![super(self), layoutSubviews] };
             let width = self.bounds().size.width;
+            let height = self.sizeThatFits(CGSize::new(width, f64::INFINITY)).height;
+            if height != self.ivars().height.replace(height) {
+                self.ivars().context.set_size(0.0, height as f32);
+            }
             if width < 1.0 || width == self.ivars().width.get() {
                 return;
             }
@@ -72,6 +85,8 @@ define_class!(
             // them up and set them again for the width it has now.
             self.setItems(None);
             // After the layout pass: items set inside it are not laid out.
+            // SAFETY: this zero-argument selector is defined on this class above.
+            // NSObject retains the receiver until the main run loop invokes it.
             let _: () = unsafe {
                 msg_send![
                     self,
@@ -88,16 +103,19 @@ impl NshTabBar {
     fn new(
         mtm: MainThreadMarker,
         items: Rc<RefCell<Vec<Retained<UITabBarItem>>>>,
+        context: ComponentContext,
     ) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(BarIvars {
             items,
             selected: Cell::new(0),
             width: Cell::new(0.0),
+            height: Cell::new(0.0),
+            context,
         });
         // SAFETY: `UITabBar`'s initializer is `UIView`'s `initWithFrame:`;
         // a bar made with `init` has no item views. The element's layout
         // sets the frame again.
-        let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(320.0, 49.0));
+        let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0));
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
 }
@@ -141,18 +159,9 @@ fn show(bar: &UITabBar, items: &[Retained<UITabBarItem>], selected: usize) {
         bar.setSelectedItem(None);
         return;
     }
-    // A width first: items made for a bar with none keep no labels or icons
-    // (UIKit lays them out at the width it has when they are set).
-    if bar.bounds().size.width < 1.0 {
-        bar.sizeToFit();
-    }
     let array = NSArray::from_retained_slice(items);
     bar.setItems(Some(&array));
-    // Items made while the bar had no width keep no labels: asking for its
-    // size gives it one (the core's frame still decides where it goes).
-    bar.sizeToFit();
     bar.setNeedsLayout();
-    bar.layoutIfNeeded();
     if let Some(item) = items.get(selected) {
         bar.setSelectedItem(Some(item));
     }
@@ -197,7 +206,6 @@ pub(crate) struct SystemTabBar {
     /// arrive separately, in any order).
     titles: Vec<String>,
     icons: Vec<String>,
-    context: ComponentContext,
     items: Rc<RefCell<Vec<Retained<UITabBarItem>>>>,
     mtm: MainThreadMarker,
     _delegate: Retained<TabDelegate>,
@@ -205,7 +213,7 @@ pub(crate) struct SystemTabBar {
 
 impl SystemTabBar {
     /// Makes the items from the titles and icons the app gave, shows them,
-    /// and reports the bar's height. Its props arrive in any order, so this
+    /// with the current selection. Its props arrive in any order, so this
     /// runs on each.
     fn rebuild(&mut self) {
         let items: Vec<_> = self
@@ -217,32 +225,17 @@ impl SystemTabBar {
                 let image = (!icon.is_empty())
                     .then(|| UIImage::systemImageNamed(&NSString::from_str(icon)))
                     .flatten();
-                // SAFETY: `UITabBarItem`'s initializer, with a title and
-                // image it keeps.
-                unsafe {
-                    UITabBarItem::initWithTitle_image_tag(
-                        UITabBarItem::alloc(self.mtm),
-                        Some(&NSString::from_str(title)),
-                        image.as_deref(),
-                        index as isize,
-                    )
-                }
+                UITabBarItem::initWithTitle_image_tag(
+                    UITabBarItem::alloc(self.mtm),
+                    Some(&NSString::from_str(title)),
+                    image.as_deref(),
+                    index as isize,
+                )
             })
             .collect();
         *self.items.borrow_mut() = items;
         let items = self.items.borrow();
         show(&self.bar, &items, self.bar.ivars().selected.get());
-        let width = self
-            .bar
-            .superview()
-            .map(|container| container.bounds().size.width)
-            .filter(|width| *width > 1.0)
-            .unwrap_or(393.0);
-        let natural = self
-            .bar
-            .sizeThatFits(CGSize::new(width, f64::INFINITY))
-            .height;
-        self.context.set_size(0.0, natural as f32);
         drop(items);
     }
 }
@@ -261,6 +254,10 @@ impl NativeComponent for SystemTabBar {
                 merge_items(items, &mut self.titles, &mut self.icons);
                 self.rebuild();
             }
+            ("icons", None | Some(JsonValue::Null)) => {
+                self.icons.clear();
+                self.rebuild();
+            }
             ("icons", Some(JsonValue::Array(icons))) => {
                 self.icons = icons
                     .iter()
@@ -272,28 +269,33 @@ impl NativeComponent for SystemTabBar {
                 let selected = index.as_u64().unwrap_or(0) as usize;
                 self.bar.ivars().selected.set(selected);
                 let items = self.items.borrow();
-                show(&self.bar, &items, selected);
+                self.bar
+                    .setSelectedItem(items.get(selected).map(|item| &**item));
+            }
+            ("selected", None | Some(JsonValue::Null)) => {
+                self.bar.ivars().selected.set(0);
+                let items = self.items.borrow();
+                self.bar.setSelectedItem(items.first().map(|item| &**item));
             }
             _ => {}
         }
     }
 }
 
-/// Registers the component: `nsh/base`'s `TabBar` names it.
+/// Registers the component used by `nsh/ios`'s `TabBar`.
 pub(crate) fn register(view: &AppView) {
     view.register_component(
         "nsh/tabbar",
         Rc::new(|context: ComponentContext| {
             let mtm = MainThreadMarker::new().expect("the tab bar is made on the main thread");
             let items = Rc::new(RefCell::new(Vec::new()));
-            let bar = NshTabBar::new(mtm, items.clone());
+            let bar = NshTabBar::new(mtm, items.clone(), context.clone());
             let delegate = TabDelegate::new(mtm, context.clone());
             bar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             Box::new(SystemTabBar {
                 bar,
                 titles: Vec::new(),
                 icons: Vec::new(),
-                context: context.clone(),
                 items,
                 mtm,
                 _delegate: delegate,
@@ -304,8 +306,9 @@ pub(crate) fn register(view: &AppView) {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_items;
     use serde_json::json;
+
+    use super::merge_items;
 
     /// A title list resent with one more tab keeps the icons the app gave
     /// beside them; tabs given as objects carry their own.

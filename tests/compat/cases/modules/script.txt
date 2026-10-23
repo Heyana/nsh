@@ -134,6 +134,11 @@ frame id:below 0 30 390 30
 frame id:column 0 81 390 60
 covers [nsh/ios] isAvailable
 covers [nsh/ios] InputAccessoryView
+expect Tab bar: true
+expect Tab: 0
+tap id:tab-next
+expect Tab: 1
+covers [nsh/ios] TabBar
 # mod-keymap
 tap id:case-mod-keymap
 # an Apple platform: Apple's symbols, and Command+Q kept by the platform.

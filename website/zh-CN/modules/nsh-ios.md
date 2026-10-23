@@ -1,6 +1,6 @@
 ---
 title: nsh/ios
-description: iOS 专有 API：isAvailable 和 InputAccessoryView（键盘上方的工具栏）。
+description: iOS 专有 API：isAvailable、TabBar 和 InputAccessoryView。
 order: 11
 ---
 
@@ -25,6 +25,45 @@ const isAvailable: boolean;
 ```
 
 在 iOS、iOS 模拟器和 Mac Catalyst 上为 `true`，其他平台为 `false`。Rust：`os() == Os::Ios`。
+
+## TabBar
+
+```ts
+function TabBar(props: TabBarProps): YNode | null;
+
+interface TabBarProps {
+  items: string[];
+  icons?: string[];
+  selected?: number;
+  onSelect?: (index: number) => void;
+  style?: StyleProp<ViewStyle>;
+  class?: string;
+}
+```
+
+UIKit 的系统标签栏，由应用决定放置位置。`items` 按顺序提供标题，
+`icons` 在相同索引提供 SF Symbol 名称。`selected` 默认为 0，
+`onSelect(index)` 报告用户选择的标签。在回调中更新 `selected` 即可跟随用户选择。
+移除 `icons` 会清空图标；移除 `selected` 会恢复索引 0。
+
+标签栏采用当前 iOS 版本的系统外观。容器根据 `style` 和 `class` 设置其 frame；
+高度为自动时，使用布局后的实际宽度测量固有高度。应用负责标签栏及其内容的位置，
+并根据布局应用安全区域边距。此组件提供标签栏，滚动行为由应用的内容和导航管理。
+
+```tsx
+import { signal } from "nsh";
+import { TabBar } from "nsh/ios";
+
+const selected = signal(0);
+
+<TabBar
+  items={["Records", "Stats"]}
+  icons={["list.bullet.rectangle", "chart.bar"]}
+  selected={selected()}
+  onSelect={(index) => selected.set(index)}
+  style={{ position: "absolute", left: 0, right: 0, bottom: 0 }}
+/>;
+```
 
 ## InputAccessoryView
 

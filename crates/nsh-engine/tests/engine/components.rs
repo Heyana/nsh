@@ -2727,19 +2727,105 @@ fn the_ios_tab_bar_is_the_systems_component() {
 /// Where there is no system bar it renders nothing: no component at all.
 #[test]
 fn the_ios_tab_bar_renders_nothing_off_ios() {
-    let (_engine, rx) = start_in(
-        IOS_TAB_BAR,
-        Environment {
-            os: nsh_core::platform::Os::MacOs,
-            ..Environment::default()
+    use nsh_core::platform::Os;
+
+    let app = IOS_TAB_BAR
+        .replace("mount, signal", "mount, signal, Text")
+        .replace(
+            "mount(App);",
+            "mount(() => <><App /><Text>Ready</Text></>);",
+        );
+    for os in [Os::Android, Os::MacOs, Os::Windows, Os::Linux, Os::Web] {
+        let (_engine, rx) = start_in(
+            &app,
+            Environment {
+                os,
+                ..Environment::default()
+            },
+        );
+        let batches = until(&rx, |batch| shows(batch, "Ready"));
+        assert!(batches.iter().any(|batch| shows(batch, "Ready")), "{os:?}");
+        let platform = batches.iter().any(|batch| {
+            batch
+                .items
+                .iter()
+                .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "nsh/tabbar"))
+        });
+        assert!(!platform, "no system bar on {os:?}, no component");
+    }
+}
+
+/// Native selection events reach JS and reactive updates reach the same bar,
+/// including removal of an optional prop.
+#[test]
+fn the_ios_tab_bar_reports_selection_and_updates_its_props() {
+    let app = r#"import { mount, signal, Text, View } from "nsh";
+import { TabBar } from "nsh/ios";
+const selected = signal<number | undefined>(0);
+const icons = signal<string[] | undefined>(["list.bullet", "chart.bar"]);
+const items = signal(["Records", "Stats"]);
+mount(() => <View>
+  <TabBar items={items()} icons={icons()} selected={selected()}
+    onSelect={(index) => {
+      selected.set(index);
+      icons.set(undefined);
+      items.set(["Records", "Statistics"]);
+    }} />
+  <Text>{`Selected: ${selected()}`}</Text>
+  <Text onPress={() => selected.set(undefined)}>Reset</Text>
+</View>);
+"#;
+    let (engine, rx) = start(app);
+    let initial = until(&rx, |batch| shows(batch, "Selected: 0"));
+    let bar = initial
+        .iter()
+        .flat_map(|batch| &batch.items)
+        .find_map(|item| match item {
+            MountItem::Component { id, name } if &**name == "nsh/tabbar" => Some(*id),
+            _ => None,
+        })
+        .expect("the system bar");
+    engine.control().dispatch_event(
+        bar,
+        EventKind::NativeEvent,
+        EventPayload::Native {
+            name: "select".into(),
+            data: serde_json::json!(1),
         },
     );
-    let batches = until(&rx, |batch| shows(batch, "Records"));
-    let platform = batches.iter().any(|batch| {
-        batch
-            .items
+    let updates = until(&rx, |batch| shows(batch, "Selected: 1"));
+    assert!(updates.iter().any(|batch| shows(batch, "Selected: 1")));
+    let props: Vec<_> = updates
+        .iter()
+        .flat_map(|batch| &batch.items)
+        .filter_map(|item| match item {
+            MountItem::ComponentProps { id, props } if *id == bar => Some(props),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(
+        props
             .iter()
-            .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "nsh/tabbar"))
-    });
-    assert!(!platform, "no system bar, no component");
+            .any(|(name, value)| &**name == "selected" && *value == Some(serde_json::json!(1)))
+    );
+    assert!(
+        props
+            .iter()
+            .any(|(name, value)| &**name == "icons" && value.is_none())
+    );
+    assert!(props.iter().any(|(name, value)| &**name == "items"
+        && *value == Some(serde_json::json!(["Records", "Statistics"]))));
+    let reset = initial
+        .iter()
+        .find_map(|batch| text_ids(batch, "Reset"))
+        .expect("reset text");
+    engine
+        .control()
+        .dispatch_event(reset, EventKind::Press, EventPayload::None);
+    let reset = until(&rx, |batch| shows(batch, "Selected: undefined"));
+    assert!(reset.iter().any(|batch| batch.items.iter().any(|item| {
+        matches!(item, MountItem::ComponentProps { id, props } if *id == bar
+            && props.iter().any(|(name, value)| &**name == "selected" && value.is_none()))
+    })));
 }
