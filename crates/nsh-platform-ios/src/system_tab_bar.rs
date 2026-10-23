@@ -1,4 +1,4 @@
-//! `nsh/ios`'s `TabBar`: a `UITabBar` with the system appearance.
+//! `nsh/base`'s `TabBar` on iOS: a `UITabBar` with the system appearance.
 //! The app places it and decides what each tab shows; the component reports
 //! its intrinsic height while its container owns its frame.
 
@@ -16,10 +16,7 @@ use objc2_core_foundation::{CGPoint, CGRect, CGSize};
 use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString};
 use objc2_ui_kit::{UIImage, UIResponder, UITabBar, UITabBarDelegate, UITabBarItem, UIView};
 
-use crate::{
-    AppView,
-    component::{ComponentContext, NativeComponent},
-};
+use crate::component::{ComponentContext, ComponentFactory, NativeComponent};
 
 /// What the delegate and the bar share: the items to show and which is
 /// selected, for the bar to lay them out again when it gets its width.
@@ -120,32 +117,30 @@ impl NshTabBar {
     }
 }
 
-/// The titles and icons after an `items` update: a list of titles leaves the
-/// icons alone (an update resends the titles whole, the icons stay), while
-/// tabs given as `{ title, icon }` carry their own.
-fn merge_items(items: &[JsonValue], titles: &mut Vec<String>, icons: &mut Vec<String>) {
-    *titles = items
+/// One tab as the app gave it (`TabBarItem`: `{ title, icon }`).
+#[derive(Debug, Default, PartialEq)]
+struct Tab {
+    title: String,
+    /// An SF Symbol's name, empty for none.
+    icon: String,
+}
+
+/// The tabs of an `items` prop; what is not a `{ title, icon }` object is a
+/// tab without a title.
+fn parse_items(items: &[JsonValue]) -> Vec<Tab> {
+    let text = |item: &JsonValue, key: &str| {
+        item.get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string()
+    };
+    items
         .iter()
-        .map(|item| match item {
-            JsonValue::String(title) => title.clone(),
-            other => other
-                .get("title")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .to_string(),
+        .map(|item| Tab {
+            title: text(item, "title"),
+            icon: text(item, "icon"),
         })
-        .collect();
-    if items.iter().any(|item| item.get("icon").is_some()) {
-        *icons = items
-            .iter()
-            .map(|item| {
-                item.get("icon")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            })
-            .collect();
-    }
+        .collect()
 }
 
 /// Shows `items` on `bar`, with `selected` chosen.
@@ -162,9 +157,8 @@ fn show(bar: &UITabBar, items: &[Retained<UITabBarItem>], selected: usize) {
     let array = NSArray::from_retained_slice(items);
     bar.setItems(Some(&array));
     bar.setNeedsLayout();
-    if let Some(item) = items.get(selected) {
-        bar.setSelectedItem(Some(item));
-    }
+    // An index past the tabs selects none.
+    bar.setSelectedItem(items.get(selected).map(|item| &**item));
 }
 
 struct DelegateIvars {
@@ -185,8 +179,8 @@ define_class!(
         fn did_select(&self, _bar: &UITabBar, item: &UITabBarItem) {
             self.ivars()
                 .context
-                // The index itself: `onSelect(index)`.
-                .emit("select", serde_json::json!(item.tag() as u32));
+                // The index itself: `onChange(index)`.
+                .emit("change", serde_json::json!(item.tag() as u32));
         }
     }
 );
@@ -199,35 +193,31 @@ impl TabDelegate {
     }
 }
 
-/// The tab bar of one `nsh/tabbar` element.
+/// The tab bar of one `TabBar` element.
 pub(crate) struct SystemTabBar {
     bar: Retained<NshTabBar>,
-    /// The tabs' titles and icons, as the app gave them (its own props
-    /// arrive separately, in any order).
-    titles: Vec<String>,
-    icons: Vec<String>,
+    /// The tabs, as the app gave them.
+    tabs: Vec<Tab>,
     items: Rc<RefCell<Vec<Retained<UITabBarItem>>>>,
     mtm: MainThreadMarker,
     _delegate: Retained<TabDelegate>,
 }
 
 impl SystemTabBar {
-    /// Makes the items from the titles and icons the app gave, shows them,
-    /// with the current selection. Its props arrive in any order, so this
-    /// runs on each.
+    /// Makes the items from the tabs the app gave and shows them, with the
+    /// current selection.
     fn rebuild(&mut self) {
         let items: Vec<_> = self
-            .titles
+            .tabs
             .iter()
             .enumerate()
-            .map(|(index, title)| {
-                let icon = self.icons.get(index).map(String::as_str).unwrap_or("");
-                let image = (!icon.is_empty())
-                    .then(|| UIImage::systemImageNamed(&NSString::from_str(icon)))
+            .map(|(index, tab)| {
+                let image = (!tab.icon.is_empty())
+                    .then(|| UIImage::systemImageNamed(&NSString::from_str(&tab.icon)))
                     .flatten();
                 UITabBarItem::initWithTitle_image_tag(
                     UITabBarItem::alloc(self.mtm),
-                    Some(&NSString::from_str(title)),
+                    Some(&NSString::from_str(&tab.title)),
                     image.as_deref(),
                     index as isize,
                 )
@@ -246,89 +236,72 @@ impl NativeComponent for SystemTabBar {
     }
 
     fn set_prop(&mut self, name: &str, value: Option<&JsonValue>) {
-        // A component's own props arrive as `$items` from `nsh/native`
-        // (`nativeComponent`) and as `items` from a Rust component.
-        let name = name.strip_prefix('$').unwrap_or(name);
-        match (name, value) {
-            ("items", Some(JsonValue::Array(items))) => {
-                merge_items(items, &mut self.titles, &mut self.icons);
+        // `TabBar`'s own props arrive as `$items` and `$selectedIndex`.
+        match (name.strip_prefix('$').unwrap_or(name), value) {
+            ("items", value) => {
+                let items = value.and_then(JsonValue::as_array);
+                self.tabs = items.map(|items| parse_items(items)).unwrap_or_default();
                 self.rebuild();
             }
-            ("icons", None | Some(JsonValue::Null)) => {
-                self.icons.clear();
-                self.rebuild();
-            }
-            ("icons", Some(JsonValue::Array(icons))) => {
-                self.icons = icons
-                    .iter()
-                    .map(|icon| icon.as_str().unwrap_or_default().to_string())
-                    .collect();
-                self.rebuild();
-            }
-            ("selected", Some(JsonValue::Number(index))) => {
-                let selected = index.as_u64().unwrap_or(0) as usize;
+            ("selectedIndex", value) => {
+                // Removed (or not a whole number): the first tab, the default.
+                let selected = value.and_then(JsonValue::as_u64).unwrap_or(0) as usize;
                 self.bar.ivars().selected.set(selected);
                 let items = self.items.borrow();
+                // Only the selection: the items and their layout stay.
                 self.bar
                     .setSelectedItem(items.get(selected).map(|item| &**item));
-            }
-            ("selected", None | Some(JsonValue::Null)) => {
-                self.bar.ivars().selected.set(0);
-                let items = self.items.borrow();
-                self.bar.setSelectedItem(items.first().map(|item| &**item));
             }
             _ => {}
         }
     }
 }
 
-/// Registers the component used by `nsh/ios`'s `TabBar`.
-pub(crate) fn register(view: &AppView) {
-    view.register_component(
-        "nsh/tabbar",
-        Rc::new(|context: ComponentContext| {
-            let mtm = MainThreadMarker::new().expect("the tab bar is made on the main thread");
-            let items = Rc::new(RefCell::new(Vec::new()));
-            let bar = NshTabBar::new(mtm, items.clone(), context.clone());
-            let delegate = TabDelegate::new(mtm, context.clone());
-            bar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
-            Box::new(SystemTabBar {
-                bar,
-                titles: Vec::new(),
-                icons: Vec::new(),
-                items,
-                mtm,
-                _delegate: delegate,
-            }) as Box<dyn NativeComponent>
-        }),
-    );
+/// Makes the bar of each `TabBar` element (`nsh_core::platform::TAB_BAR_COMPONENT`),
+/// which every surface has (`Components::default`).
+pub(crate) fn factory() -> ComponentFactory {
+    Rc::new(|context: ComponentContext| {
+        let mtm = MainThreadMarker::new().expect("the tab bar is made on the main thread");
+        let items = Rc::new(RefCell::new(Vec::new()));
+        let bar = NshTabBar::new(mtm, items.clone(), context.clone());
+        let delegate = TabDelegate::new(mtm, context.clone());
+        bar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
+        Box::new(SystemTabBar {
+            bar,
+            tabs: Vec::new(),
+            items,
+            mtm,
+            _delegate: delegate,
+        }) as Box<dyn NativeComponent>
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use serde_json::json;
 
-    use super::merge_items;
+    use super::{Tab, parse_items};
 
-    /// A title list resent with one more tab keeps the icons the app gave
-    /// beside them; tabs given as objects carry their own.
+    /// Each tab carries its own title and icon; a tab without an icon has
+    /// none.
     #[test]
-    fn a_titles_only_update_keeps_the_icons() {
-        let mut titles = Vec::new();
-        let mut icons = vec!["house".to_string()];
-        merge_items(&[json!("A")], &mut titles, &mut icons);
-        merge_items(&[json!("A"), json!("B")], &mut titles, &mut icons);
-        assert_eq!(titles, ["A", "B"]);
-        assert_eq!(icons, ["house"]);
-
-        merge_items(
-            &[
-                json!({ "title": "A", "icon": "star" }),
-                json!({ "title": "B", "icon": "bell" }),
-            ],
-            &mut titles,
-            &mut icons,
+    fn tabs_carry_their_titles_and_icons() {
+        let tabs = parse_items(&[
+            json!({ "title": "Records", "icon": "list.bullet" }),
+            json!({ "title": "Stats" }),
+        ]);
+        assert_eq!(
+            tabs,
+            [
+                Tab {
+                    title: "Records".into(),
+                    icon: "list.bullet".into(),
+                },
+                Tab {
+                    title: "Stats".into(),
+                    icon: String::new(),
+                },
+            ]
         );
-        assert_eq!(icons, ["star", "bell"]);
     }
 }

@@ -2673,18 +2673,20 @@ fn a_base_progress_shows_the_apps_value_in_its_indicator() {
     assert_eq!(width(&after), Some(50.0));
 }
 
-const IOS_TAB_BAR: &str = r##"import { mount, signal } from "nsh";
-import { TabBar } from "nsh/ios";
+const TAB_BAR: &str = r##"import { mount, signal } from "nsh";
+import { TabBar } from "nsh/base";
 
 const selected = signal(0);
 
 function App() {
   return (
     <TabBar
-      items={["Records", "Stats"]}
-      icons={["list.bullet", "chart.bar"]}
-      selected={selected()}
-      onSelect={(index: number) => selected.set(index)}
+      items={[
+        { title: "Records", icon: "list.bullet" },
+        { title: "Stats", icon: "chart.bar" },
+      ]}
+      selectedIndex={selected()}
+      onChange={(index: number) => selected.set(index)}
     />
   );
 }
@@ -2692,50 +2694,63 @@ function App() {
 mount(App);
 "##;
 
-/// `nsh/ios`'s `TabBar` is the system's component: `nsh/tabbar`, given the
-/// titles (and the icons beside them).
-#[test]
-fn the_ios_tab_bar_is_the_systems_component() {
-    let (_engine, rx) = start(IOS_TAB_BAR);
-    let batches = until(&rx, |batch| {
-        batch
-            .items
-            .iter()
-            .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "nsh/tabbar"))
-    });
-    let props = batches.iter().find_map(|batch| {
-        batch.items.iter().find_map(|i| match i {
-            MountItem::ComponentProps { props, .. } => Some(props.clone()),
-            _ => None,
-        })
-    });
-    let props = props.expect("its props reach it");
-    let items = props
-        .iter()
-        .find(|(name, _)| &**name == "items")
-        .and_then(|(_, value)| value.clone())
-        .expect("the tabs reach it");
-    let titles: Vec<&str> = items
-        .as_array()
-        .expect("an array")
-        .iter()
-        .filter_map(|tab| tab.as_str())
-        .collect();
-    assert_eq!(titles, ["Records", "Stats"]);
+fn is_tab_bar(item: &MountItem) -> bool {
+    matches!(item, MountItem::Component { name, .. }
+        if &**name == nsh_core::platform::TAB_BAR_COMPONENT)
 }
 
-/// Where there is no system bar it renders nothing: no component at all.
+/// `nsh/base`'s `TabBar` is the system's component on iOS and Android, given
+/// the tabs as the app wrote them.
 #[test]
-fn the_ios_tab_bar_renders_nothing_off_ios() {
+fn the_tab_bar_is_the_systems_component_on_ios_and_android() {
     use nsh_core::platform::Os;
 
-    let app = IOS_TAB_BAR
+    for os in [Os::Ios, Os::Android] {
+        let (_engine, rx) = start_in(
+            TAB_BAR,
+            Environment {
+                os,
+                ..Environment::default()
+            },
+        );
+        let batches = until(&rx, |batch| batch.items.iter().any(is_tab_bar));
+        let props = batches.iter().find_map(|batch| {
+            batch.items.iter().find_map(|i| match i {
+                MountItem::ComponentProps { props, .. } => Some(props.clone()),
+                _ => None,
+            })
+        });
+        let props = props.expect("its props reach it");
+        let value = |key: &str| {
+            props
+                .iter()
+                .find(|(name, _)| &**name == key)
+                .and_then(|(_, value)| value.clone())
+        };
+        assert_eq!(
+            value("items"),
+            Some(serde_json::json!([
+                { "title": "Records", "icon": "list.bullet" },
+                { "title": "Stats", "icon": "chart.bar" },
+            ])),
+            "{os:?}"
+        );
+        assert_eq!(value("selectedIndex"), Some(serde_json::json!(0)), "{os:?}");
+    }
+}
+
+/// Where the system has no tab bar it renders nothing: no component at all.
+#[test]
+fn the_tab_bar_renders_nothing_on_the_desktops_and_the_web() {
+    use nsh_core::platform::Os;
+
+    let app = TAB_BAR
         .replace("mount, signal", "mount, signal, Text")
         .replace(
             "mount(App);",
             "mount(() => <><App /><Text>Ready</Text></>);",
         );
-    for os in [Os::Android, Os::MacOs, Os::Windows, Os::Linux, Os::Web] {
+    for os in [Os::MacOs, Os::Windows, Os::Linux, Os::Web] {
         let (_engine, rx) = start_in(
             &app,
             Environment {
@@ -2745,31 +2760,26 @@ fn the_ios_tab_bar_renders_nothing_off_ios() {
         );
         let batches = until(&rx, |batch| shows(batch, "Ready"));
         assert!(batches.iter().any(|batch| shows(batch, "Ready")), "{os:?}");
-        let platform = batches.iter().any(|batch| {
-            batch
-                .items
-                .iter()
-                .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "nsh/tabbar"))
-        });
+        let platform = batches
+            .iter()
+            .any(|batch| batch.items.iter().any(is_tab_bar));
         assert!(!platform, "no system bar on {os:?}, no component");
     }
 }
 
-/// Native selection events reach JS and reactive updates reach the same bar,
-/// including removal of an optional prop.
+/// The user's choice reaches `onChange` as the index, and reactive updates
+/// reach the same bar; `selectedIndex` removed is its default, 0.
 #[test]
-fn the_ios_tab_bar_reports_selection_and_updates_its_props() {
+fn the_tab_bar_reports_the_users_choice_and_follows_its_props() {
     let app = r#"import { mount, signal, Text, View } from "nsh";
-import { TabBar } from "nsh/ios";
+import { TabBar } from "nsh/base";
 const selected = signal<number | undefined>(0);
-const icons = signal<string[] | undefined>(["list.bullet", "chart.bar"]);
-const items = signal(["Records", "Stats"]);
+const items = signal([{ title: "Records" }, { title: "Stats" }]);
 mount(() => <View>
-  <TabBar items={items()} icons={icons()} selected={selected()}
-    onSelect={(index) => {
+  <TabBar items={items()} selectedIndex={selected()}
+    onChange={(index) => {
       selected.set(index);
-      icons.set(undefined);
-      items.set(["Records", "Statistics"]);
+      items.set([{ title: "Records" }, { title: "Statistics" }]);
     }} />
   <Text>{`Selected: ${selected()}`}</Text>
   <Text onPress={() => selected.set(undefined)}>Reset</Text>
@@ -2781,7 +2791,7 @@ mount(() => <View>
         .iter()
         .flat_map(|batch| &batch.items)
         .find_map(|item| match item {
-            MountItem::Component { id, name } if &**name == "nsh/tabbar" => Some(*id),
+            MountItem::Component { id, .. } if is_tab_bar(item) => Some(*id),
             _ => None,
         })
         .expect("the system bar");
@@ -2789,7 +2799,7 @@ mount(() => <View>
         bar,
         EventKind::NativeEvent,
         EventPayload::Native {
-            name: "select".into(),
+            name: "change".into(),
             data: serde_json::json!(1),
         },
     );
@@ -2807,15 +2817,11 @@ mount(() => <View>
     assert!(
         props
             .iter()
-            .any(|(name, value)| &**name == "selected" && *value == Some(serde_json::json!(1)))
-    );
-    assert!(
-        props
-            .iter()
-            .any(|(name, value)| &**name == "icons" && value.is_none())
+            .any(|(name, value)| &**name == "selectedIndex"
+                && *value == Some(serde_json::json!(1)))
     );
     assert!(props.iter().any(|(name, value)| &**name == "items"
-        && *value == Some(serde_json::json!(["Records", "Statistics"]))));
+        && *value == Some(serde_json::json!([{ "title": "Records" }, { "title": "Statistics" }]))));
     let reset = initial
         .iter()
         .find_map(|batch| text_ids(batch, "Reset"))
@@ -2826,6 +2832,7 @@ mount(() => <View>
     let reset = until(&rx, |batch| shows(batch, "Selected: undefined"));
     assert!(reset.iter().any(|batch| batch.items.iter().any(|item| {
         matches!(item, MountItem::ComponentProps { id, props } if *id == bar
-            && props.iter().any(|(name, value)| &**name == "selected" && value.is_none()))
+            && props.iter().any(|(name, value)| &**name == "selectedIndex"
+                && *value == Some(serde_json::json!(0))))
     })));
 }

@@ -903,6 +903,17 @@ covers [props] disabled
 covers [props] checkedStyle
 covers [props] accessibilityLabel
 covers [events] onChange
+# base-tab-bar
+tap id:case-base-tab-bar
+# The system's bar, in the frame the app's style gives it; the app owns
+# which tab is selected and follows the user's choice (`onChange`).
+expect Tab: 0
+frame id:tab-bar 0 784 390 60
+tap id:tab-next
+expect Tab: 1
+tap id:tab-rename
+frame id:tab-bar 0 784 390 60
+covers [nsh/base] TabBar
 # base-tabs
 tap id:case-base-tabs
 # The list is a tab list for screen readers; each tab is a tab of its

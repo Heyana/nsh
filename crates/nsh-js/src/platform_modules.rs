@@ -463,59 +463,12 @@ pub(crate) const HOST_EXPORTS: &[Item] = &[(
     ),
 )];
 
-/// `{ props: [...], events: [...] }` for [`render_native`].
-fn native_spec(cx: *mut JsContext, props: &[&str], events: &[&str]) -> JsValue {
-    // SAFETY: new values, each set into the object (which owns them).
-    unsafe {
-        let spec = qjs::JS_NewObject(cx);
-        let list = qjs::JS_NewArray(cx);
-        for (i, name) in props.iter().enumerate() {
-            let value = qjs::JS_NewStringLen(cx, name.as_ptr().cast(), name.len() as _);
-            qjs::JS_SetPropertyUint32(cx, list, i as u32, value);
-        }
-        qjs::JS_SetPropertyStr(cx, spec, c"props".as_ptr(), list);
-        let list = qjs::JS_NewArray(cx);
-        for (i, name) in events.iter().enumerate() {
-            let value = qjs::JS_NewStringLen(cx, name.as_ptr().cast(), name.len() as _);
-            qjs::JS_SetPropertyUint32(cx, list, i as u32, value);
-        }
-        qjs::JS_SetPropertyStr(cx, spec, c"events".as_ptr(), list);
-        spec
-    }
-}
-
-/// `nsh/ios`'s `TabBar`: the system's tab bar, iOS only.
-fn tab_bar(cx: *mut JsContext) -> JsValue {
-    if os(cx) != Os::Ios {
-        // Elsewhere there is no system bar: the app draws one with `Tabs`.
-        return reactive::new_function(cx, c"TabBar", nothing, 1);
-    }
-    // SAFETY: two new values; the function keeps dups of them, ours are
-    // freed.
-    unsafe {
-        let name = qjs::JS_NewStringLen(cx, c"nsh/tabbar".as_ptr().cast(), 10);
-        let spec = native_spec(cx, &["items", "icons", "selected"], &["select"]);
-        let f = native(cx, render_native, 1, &mut [name, spec]);
-        qjs::JS_FreeValue(cx, name);
-        qjs::JS_FreeValue(cx, spec);
-        f
-    }
-}
-
 /// `nsh/ios`.
 pub(crate) const IOS_EXPORTS: &[Item] = &[
     (
         "isAvailable",
         Export::Value(|cx| boolean(os(cx) == Os::Ios)),
         Ts::value("True on iOS (and Mac Catalyst).", "boolean"),
-    ),
-    (
-        "TabBar",
-        Export::Value(tab_bar),
-        Ts::function(
-            "The system's tab bar (iOS's `UITabBar`, with the system appearance).\nIt renders nothing where no system bar exists. It takes its space from `style` (`position: \"absolute\"`, `left`,\n`right`, `bottom`), as a native view does.",
-            &["(props: TabBarProps): YNode | null"],
-        ),
     ),
     (
         "InputAccessoryView",
@@ -534,20 +487,7 @@ pub(crate) const IOS_EXPORTS: &[Item] = &[
 ];
 
 /// `nsh/ios`'s types.
-pub(crate) const IOS_TYPES: &str = r#"export interface TabBarProps {
-  /** The tabs' titles, in order. */
-  items: string[];
-  /** An SF Symbol's name for each tab, by the same index. */
-  icons?: string[];
-  /** The selected tab, by index; defaults to 0. */
-  selected?: number;
-  /** A tab the user chose. */
-  onSelect?: (index: number) => void;
-  style?: StyleProp<ViewStyle>;
-  class?: string;
-}
-
-export interface InputAccessoryViewProps {
+pub(crate) const IOS_TYPES: &str = r#"export interface InputAccessoryViewProps {
   /** Inputs with this `inputAccessoryViewID` show the view over the keyboard. */
   nativeID: string;
   style?: StyleProp<ViewStyle>;

@@ -1,21 +1,21 @@
 ---
 title: nsh/base
-description: 应用界面的无样式基础组件：按钮、复选框、单选框、开关、标签页、可调整大小的面板、可停靠的工作区、Markdown 与 HTML 文档、跨文字的选区、导航栈与对话框、安全区、系统警告对话框、软键盘，以及页面和对话框的状态栏。
+description: 应用界面的无样式基础组件：按钮、复选框、单选框、开关、标签页、系统标签栏、可调整大小的面板、可停靠的工作区、Markdown 与 HTML 文档、跨文字的选区、导航栈与对话框、安全区、系统警告对话框、软键盘，以及页面和对话框的状态栏。
 order: 2.5
 demo: ui-navigation
 ---
 
 # nsh/base
 
-`nsh/base` 是应用界面的基础组件层：不带样式、负责行为、状态、焦点和无障碍的组件，各平台通用。它位于基础元素（`nsh` 和各个 `nsh/<module>` 模块）与应用自己的组件库之间，就像 GPUI Kit 中 `gpui-base` 位于 `gpui` 与带样式的组件库之间（见[模块](./index.md#three-layers)）。它提供控件（`Button`、`Checkbox`、放在 `RadioGroup` 里的 `Radio`、`Switch`、放在 `Tabs` 里的 `Tab`）、可展开和收起的区域（`Collapsible`）、进度条（`Progress`）、由用户自行安排的工作区（放在 `ResizablePanelGroup` 里的 `ResizablePanel`，以及 `DockArea` 的分栏、标签组和停靠区）、Markdown 或 HTML 文档（`TextView`）、跨文字的选区（`SelectionArea`）、显示在一切之上的弹出层（`Popover`，`Menu` 和 `ContextMenu` 及其 `MenuItem`、`MenuSeparator` 和 `Submenu`，`Tooltip`，`Sheet`）、toast（放在 `ToastStack` 中的 `Toast`，生命周期由 `ToastManager` 管理）、导航（由 `createNavStack` 创建的状态驱动、由多个 `NavPage` 组成的 `NavStack`，以及在所有内容之上展示内容的 `Dialog`）、安全区（`SafeAreaView`、`safeArea()` 和 `safeAreaInsets()`）、系统警告对话框（`AlertDialog`）、软键盘（`Keyboard`、`keyboardFrame()` 和 `KeyboardAvoidingView`）。页面和对话框还决定状态栏（`statusBar`）。
+`nsh/base` 是应用界面的基础组件层：不带样式、负责行为、状态、焦点和无障碍的组件，各平台通用。它位于基础元素（`nsh` 和各个 `nsh/<module>` 模块）与应用自己的组件库之间，就像 GPUI Kit 中 `gpui-base` 位于 `gpui` 与带样式的组件库之间（见[模块](./index.md#three-layers)）。它提供控件（`Button`、`Checkbox`、放在 `RadioGroup` 里的 `Radio`、`Switch`、放在 `Tabs` 里的 `Tab`）、可展开和收起的区域（`Collapsible`）、进度条（`Progress`）、由用户自行安排的工作区（放在 `ResizablePanelGroup` 里的 `ResizablePanel`，以及 `DockArea` 的分栏、标签组和停靠区）、Markdown 或 HTML 文档（`TextView`）、跨文字的选区（`SelectionArea`）、显示在一切之上的弹出层（`Popover`，`Menu` 和 `ContextMenu` 及其 `MenuItem`、`MenuSeparator` 和 `Submenu`，`Tooltip`，`Sheet`）、toast（放在 `ToastStack` 中的 `Toast`，生命周期由 `ToastManager` 管理）、导航（由 `createNavStack` 创建的状态驱动、由多个 `NavPage` 组成的 `NavStack`，在所有内容之上展示内容的 `Dialog`，以及系统的标签栏 `TabBar`）、安全区（`SafeAreaView`、`safeArea()` 和 `safeAreaInsets()`）、系统警告对话框（`AlertDialog`）、软键盘（`Keyboard`、`keyboardFrame()` 和 `KeyboardAvoidingView`）。页面和对话框还决定状态栏（`statusBar`）。
 
 外观由应用决定：页面、对话框或标题栏里的内容都是你自己的 JSX，用基础元素配合样式、[Tailwind](../docs/tailwind.md) 类和主题绘制；或者是[你自己的 crate](../docs/rust.md) 中的 Rust 组件；也可以是社区基于 `nsh/base` 构建的组件库。每个宿主都提供 `nsh/base`；Rust 应用通过 `nsh-base` crate 使用同一套 API（`nsh_base::{button, safe_area_view, …}`）。
 
 ```rust tabs
 use nsh_base::{
-    AvoidBehavior, Edge, MarkdownExtension, MarkdownOptions, alert_dialog, button, checkbox, dialog, dock_area,
+    AvoidBehavior, Edge, MarkdownExtension, MarkdownOptions, TabBarItem, alert_dialog, button, checkbox, dialog, dock_area,
     h_resizable, keyboard_avoiding_view, nav_page, nav_stack, radio, radio_group, resizable_panel, safe_area_view,
-    selection_area, switch, tab, tabs, text_view, theme, toast, toast_stack, v_resizable,
+    selection_area, switch, tab, tab_bar, tabs, text_view, theme, toast, toast_stack, v_resizable,
 };
 ```
 
@@ -23,12 +23,12 @@ use nsh_base::{
 import {
   AlertDialog, Button, Checkbox, Collapsible, ContextMenu, createNavStack, Dialog, DockArea, Keyboard, keyboardFrame, KeyboardAvoidingView, Menu, Progress,
   MenuItem, MenuSeparator, NavPage, NavStack, Popover, Radio, RadioGroup, ResizablePanel, ResizablePanelGroup, SafeAreaView, safeArea, safeAreaInsets, SelectionArea, Sheet,
-  Submenu, Switch, Tab, Tabs, TextView, Toast, ToastManager, ToastStack, Tooltip,
+  Submenu, Switch, Tab, TabBar, Tabs, TextView, Toast, ToastManager, ToastStack, Tooltip,
 } from "nsh/base";
 import type {
   AlertDialogAction, AlertDialogOptions, AlertDialogPresentation, AlertDialogRole, AvoidBehavior, ButtonProps,
   CheckboxProps, CollapsibleProps, DialogChangeReason, DialogProps, DockAreaLayout, DockNode, DockRegion, Edge, Edges, HeaderStyle, NavPageProps, NavStackProps, NavStackState, ProgressProps, StatusBar,
-  RadioGroupProps, RadioProps, SelectionAreaProps, StatusBarForeground, SwitchProps, TabProps, TabsProps, TextViewProps, TextViewDocument, MarkdownExtension, MarkdownOptions,
+  RadioGroupProps, RadioProps, SelectionAreaProps, StatusBarForeground, SwitchProps, TabBarItem, TabBarProps, TabProps, TabsProps, TextViewProps, TextViewDocument, MarkdownExtension, MarkdownOptions,
   ToastEntry, ToastMotion, ToastOptions, ToastProps, ToastStackProps, ToastTransitionStatus,
 } from "nsh/base";
 ```
@@ -48,6 +48,7 @@ import type {
 | [`DockArea`](../elements/dock.md) | `dock_area()` | 由分栏、标签组和边缘停靠区组成、用户自行安排的工作区；它的布局是应用的数据。 |
 | [`NavStack`、`NavPage`、`createNavStack`](../elements/nav-stack.md) | `nav_stack()`、`nav_page()` | 原生导航栈及其页面。 |
 | [`Dialog`](../elements/dialog.md) | `dialog()` | 在所有内容之上呈现的内容：sheet、全屏流程、对话框。 |
+| [`TabBar`](../elements/tab-bar.md) | `tab_bar()` | 系统的标签栏：iOS 上是 `UITabBar`，Android 上是 Material 的导航栏。 |
 | [`SafeAreaView`](../elements/safe-area-view.md) | `safe_area_view()` | 避开系统界面和标题栏的视图。 |
 | [`safeArea()`、`safeAreaInsets()`](../elements/safe-area-view.md#safearea-and-safeareainsets) | `safe_area()`、`cx.insets()` | 边距本身，响应式。 |
 | [`KeyboardAvoidingView`](../elements/keyboard-avoiding-view.md) | `keyboard_avoiding_view()` | 让内容保持在软键盘上方的视图。 |
@@ -155,6 +156,10 @@ import type {
 ### Dialog
 
 `Dialog` 在所有内容之上（包括栈的标题栏）、在它自己的原生窗口层中呈现内容。它的弹出层和背景层由应用设定样式。见 [Dialog](../elements/dialog.md)。
+
+### TabBar
+
+`TabBar` 是在应用的顶层部分之间切换的系统标签栏：iOS 上是 `UITabBar`，Android 上是 Material 3 的导航栏，外观都是系统的。应用提供标签、掌握选中的那一个（`selectedIndex`，用户的选择通过 `onChange` 报告）、摆放标签栏并显示该部分的内容。在桌面和 Web 上，各个部分用 `Tabs` 显示，`TabBar` 不占空间。见 [TabBar](../elements/tab-bar.md)。
 
 <a id="safe-areas"></a>
 
@@ -299,6 +304,6 @@ nav_page()
 
 - [导航指南](../docs/navigation.md)。
 - [表单与键盘](../docs/forms-and-keyboard.md)。
-- [Button](../elements/button.md)、[Checkbox](../elements/checkbox.md)、[Radio](../elements/radio.md)、[Switch](../elements/switch.md)、[Tabs](../elements/tabs.md)、[Collapsible](../elements/collapsible.md)、[Progress](../elements/progress.md)、[NavStack](../elements/nav-stack.md)、[Dialog](../elements/dialog.md)、[SafeAreaView](../elements/safe-area-view.md)、[KeyboardAvoidingView](../elements/keyboard-avoiding-view.md)、[AlertDialog](../elements/alert-dialog.md)、[TextView](../elements/text-view.md)、[SelectionArea](../elements/selection-area.md)、[Text](../elements/text.md) 与 [Input](../elements/input.md)。
+- [Button](../elements/button.md)、[Checkbox](../elements/checkbox.md)、[Radio](../elements/radio.md)、[Switch](../elements/switch.md)、[Tabs](../elements/tabs.md)、[TabBar](../elements/tab-bar.md)、[Collapsible](../elements/collapsible.md)、[Progress](../elements/progress.md)、[NavStack](../elements/nav-stack.md)、[Dialog](../elements/dialog.md)、[SafeAreaView](../elements/safe-area-view.md)、[KeyboardAvoidingView](../elements/keyboard-avoiding-view.md)、[AlertDialog](../elements/alert-dialog.md)、[TextView](../elements/text-view.md)、[SelectionArea](../elements/selection-area.md)、[Text](../elements/text.md) 与 [Input](../elements/input.md)。
 - [设备与环境](../docs/device-and-environment.md)。
 - [nsh/android](./nsh-android.md)：`BackHandler`、用于简短消息的 `Toast.show` 及其他 Android 专用 API。
