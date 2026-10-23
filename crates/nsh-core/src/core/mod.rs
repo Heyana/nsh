@@ -733,6 +733,9 @@ pub struct Core<M: TextEngine> {
     layout: LayoutTree<LeafContext<M::Prepared>>,
     text_engine: Rc<M>,
     measure_cache: MeasureCache,
+    /// A native component's name that arrived after its element was made:
+    /// the platform has to be told, which it is at the end of `set_prop`.
+    pending_component: Option<(NodeId, Arc<str>)>,
     /// Text blocks whose final layout must be (re)made after layout.
     pending_text: Vec<Key>,
     /// Text blocks with attachments (checked for attachments laid out
@@ -887,6 +890,7 @@ impl<M: TextEngine> Core<M> {
             layout,
             text_engine: Rc::new(text_engine),
             measure_cache: MeasureCache::default(),
+            pending_component: None,
             pending_text: Vec::new(),
             attachment_blocks: Vec::new(),
             max_nodes: usize::MAX,
@@ -2456,6 +2460,8 @@ impl<M: TextEngine> Core<M> {
             return Ok(());
         }
         let node = &mut self.nodes[key as usize];
+        // Filled when a native component's name comes after its element.
+        let mut id_pending: Option<Arc<str>> = None;
         let mut flags = 0;
         match prop {
             Prop::Source(source) => {
@@ -3091,7 +3097,13 @@ impl<M: TextEngine> Core<M> {
             Prop::Component(name) => {
                 if let Some(component) = node.component.as_mut() {
                     match &component.name {
-                        None => component.name = Some(name),
+                        None => {
+                            component.name = Some(name.clone());
+                            // Its element was made before the name came (a
+                            // Rust component's `native()`): the platform made
+                            // an empty container and has to be told now.
+                            id_pending = Some(name);
+                        }
                         Some(old) if *old != name => log::warn!(
                             target: "js",
                             "a native component cannot change from `{old}` to `{name}`; render a new element"
@@ -3236,6 +3248,15 @@ impl<M: TextEngine> Core<M> {
                     self.measure_input(key);
                 }
             }
+        }
+        if let Some(name) = id_pending
+            && self.nodes[key as usize].created
+        {
+            // Its element was made before its name came: the platform made an
+            // empty container, and is told which component it holds now. (A
+            // name that comes before the element is made is sent with it.)
+            self.mount.push(MountItem::Component { id, name });
+            flags |= dirty::COMPONENT;
         }
         if flags != 0 {
             self.mark(key, flags);
@@ -3791,7 +3812,9 @@ impl<M: TextEngine> Core<M> {
                     id,
                     name: name.clone(),
                 }),
-                None => log::warn!(target: "js", "a <native> element without `component`"),
+                // A Rust component's `native()` names its element after it is
+                // made (`set_prop`), so this is not an error yet.
+                None => log::debug!(target: "js", "a <native> element not named yet"),
             }
             // The new component gets every property.
             component.changed = component.props.iter().map(|(k, _)| k.clone()).collect();

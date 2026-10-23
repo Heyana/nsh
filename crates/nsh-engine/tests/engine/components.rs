@@ -2672,3 +2672,155 @@ fn a_base_progress_shows_the_apps_value_in_its_indicator() {
     assert_eq!(value(&after), Some(range(None)));
     assert_eq!(width(&after), Some(50.0));
 }
+
+const BASE_TAB_BAR: &str = r##"import { mount, signal } from "nsh";
+import { TabBar } from "nsh/base";
+
+function App() {
+  const selected = signal(0);
+  return (
+    <TabBar
+      items={["Records", "Stats"]}
+      icons={["list.bullet", "chart.bar"]}
+      selected={selected()}
+      onSelect={(index: number) => selected.set(index)}
+    />
+  );
+}
+
+mount(App);
+"##;
+
+/// On iOS `nsh/base`'s `TabBar` is the platform's: a `nsh/tabbar` component
+/// whose props carry the tabs and the selected index.
+#[test]
+fn a_base_tab_bar_is_the_platforms_on_ios() {
+    let (_engine, rx) = start(BASE_TAB_BAR);
+    let batches = until(&rx, |batch| {
+        batch
+            .items
+            .iter()
+            .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "nsh/tabbar"))
+    });
+    let items = batches.iter().find_map(|batch| {
+        batch.items.iter().find_map(|i| match i {
+            MountItem::ComponentProps { props, .. } => props
+                .iter()
+                .find(|(name, _)| &**name == "items")
+                .and_then(|(_, value)| value.clone()),
+            _ => None,
+        })
+    });
+    let items = items.expect("the tabs reach the component");
+    let titles: Vec<&str> = items
+        .as_array()
+        .expect("an array of tabs")
+        .iter()
+        .filter_map(|tab| tab.get("title").and_then(|title| title.as_str()))
+        .collect();
+    assert_eq!(titles, ["Records", "Stats"]);
+}
+
+/// Elsewhere the tab bar is drawn: no platform component, and the titles are
+/// the app's own text.
+#[test]
+fn a_base_tab_bar_is_drawn_off_ios() {
+    let (_engine, rx) = start_in(
+        BASE_TAB_BAR,
+        Environment {
+            os: nsh_core::platform::Os::MacOs,
+            ..Environment::default()
+        },
+    );
+    let batches = until(&rx, |batch| shows(batch, "Records"));
+    let platform = batches.iter().any(|batch| {
+        batch
+            .items
+            .iter()
+            .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "nsh/tabbar"))
+    });
+    assert!(!platform, "the drawn tab bar uses no platform component");
+    assert!(batches.iter().any(|batch| shows(batch, "Stats")));
+}
+
+const BASE_TAB_BAR_EMPTIED: &str = r##"import { mount, signal } from "nsh";
+import { TabBar } from "nsh/base";
+
+const tabs = signal(["Records", "Stats"]);
+setTimeout(() => tabs.set([]), 50);
+setTimeout(() => tabs.set(["Records", "Stats"]), 150);
+
+function App() {
+  return <TabBar items={tabs()} selected={0} />;
+}
+
+mount(App);
+"##;
+
+/// The list the platform is told about follows the app: two tabs, none, two
+/// again — an empty list has to reach it, or a bar keeps showing the items of
+/// a list that is gone.
+#[test]
+fn a_base_tab_bar_passes_an_emptied_list_on() {
+    let (_engine, rx) = start(BASE_TAB_BAR_EMPTIED);
+    let lens = |batch: &MountBatch| -> Vec<usize> {
+        batch
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                MountItem::ComponentProps { props, .. } => props
+                    .iter()
+                    .find(|(name, _)| &**name == "items")
+                    .and_then(|(_, value)| value.as_ref())
+                    .and_then(|value| value.as_array())
+                    .map(|tabs| tabs.len()),
+                _ => None,
+            })
+            .collect()
+    };
+    // Two tabs, then none.
+    let emptied = until(&rx, |batch| lens(batch).contains(&0));
+    let seen: Vec<usize> = emptied.iter().flat_map(&lens).collect();
+    assert!(seen.contains(&2), "the tabs reached it first: {seen:?}");
+    assert_eq!(seen.last(), Some(&0), "then the emptied list: {seen:?}");
+    // And back.
+    let refilled = until(&rx, |batch| lens(batch).contains(&2));
+    let seen: Vec<usize> = refilled.iter().flat_map(&lens).collect();
+    assert_eq!(seen.last(), Some(&2), "the refilled list: {seen:?}");
+}
+
+const BASE_TAB_BAR_SELECTED: &str = r##"import { mount, signal } from "nsh";
+import { TabBar } from "nsh/base";
+
+const selected = signal(0);
+setTimeout(() => selected.set(1), 50);
+
+function App() {
+  return (
+    <TabBar
+      items={["Records", "Stats"]}
+      selected={selected()}
+      onSelect={(index: number) => selected.set(index)}
+    />
+  );
+}
+
+mount(App);
+"##;
+
+/// Off iOS the bar is drawn: the selected tab's marker follows `selected`
+/// even though the rows themselves are kept (their keys did not change).
+#[test]
+fn a_drawn_tab_bar_follows_the_selected_tab() {
+    let (_engine, rx) = start_in(
+        BASE_TAB_BAR_SELECTED,
+        Environment {
+            os: nsh_core::platform::Os::MacOs,
+            ..Environment::default()
+        },
+    );
+    // The first tab starts marked, then the second; the first loses its mark.
+    let batches = until(&rx, |batch| shows(batch, "• Stats"));
+    assert!(batches.iter().any(|batch| shows(batch, "• Records")));
+    assert!(batches.iter().any(|batch| shows(batch, "Records")));
+}

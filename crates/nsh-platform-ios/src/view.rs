@@ -54,7 +54,7 @@ impl AppView {
         container.setAutoresizingMask(
             UIViewAutoresizing::FlexibleWidth | UIViewAutoresizing::FlexibleHeight,
         );
-        AppView {
+        let view = AppView {
             inner: Rc::new(Inner {
                 container,
                 state: RefCell::new(State {
@@ -69,7 +69,10 @@ impl AppView {
                     test_model: None,
                 }),
             }),
-        }
+        };
+        // NSH's own native components, next to the embedding app's.
+        crate::system_tab_bar::register(&view);
+        view
     }
 
     /// The view to add to a hierarchy.
