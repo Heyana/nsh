@@ -2834,8 +2834,8 @@ impl Mounter {
 
     /// Presses the element the app put in the trailing header slot, as a tap
     /// on a system bar button does: the first view inside the slot that
-    /// takes a press, resolved now (the slot's content arrives after the
-    /// button is made).
+    /// takes a press (the one made first), resolved now (the slot's content
+    /// arrives after the button is made). A slot with none takes no press.
     pub(crate) fn press_trailing_header(&mut self, screen: NodeId) {
         let Some(Slot {
             native: Native::Screen(host),
@@ -2862,6 +2862,7 @@ impl Mounter {
                 && view.isDescendantOfView(&container)
             {
                 found = Some(id);
+                break;
             }
         }
         if let Some(node) = found {

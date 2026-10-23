@@ -58,6 +58,7 @@ crate::static_reactive!(Hsla: Hsla, Rgba, Color);
 crate::static_reactive!(crate::AccessibilityRole: crate::AccessibilityRole);
 crate::static_reactive!(AutoCapitalize: AutoCapitalize);
 crate::static_reactive!(AutoFill: AutoFill);
+crate::static_reactive!(crate::HeaderSystemItem: crate::HeaderSystemItem);
 crate::static_reactive!(KeyboardAppearance: KeyboardAppearance);
 crate::static_reactive!(KeyboardType: KeyboardType);
 crate::static_reactive!(ModalAnimation: ModalAnimation);
@@ -675,14 +676,15 @@ impl Screen {
         })
     }
 
-    /// The trailing header button is UIKit's own (`add`, `done`, `close`,
-    /// `edit`, `compose`, `search`, `share`, `trash`, `save`, `cancel`), drawn
-    /// instead of the `headerRight` view (iOS; a press goes to that view).
-    pub fn header_right_system_item(self, item: impl IntoReactive<super::SharedString>) -> Self {
-        self.bind_prop(item, |t| {
-            Prop::Screen(ScreenProp::HeaderRightSystemItem(Some(Arc::from(
-                t.as_str(),
-            ))))
+    /// The trailing header button is UIKit's own, drawn instead of the
+    /// `header_right` view (iOS; a press on it presses that view's first
+    /// pressable view).
+    pub fn header_right_system_item(
+        self,
+        item: impl IntoReactive<crate::HeaderSystemItem>,
+    ) -> Self {
+        self.bind_prop(item, |item| {
+            Prop::Screen(ScreenProp::HeaderRightSystemItem(Some(item)))
         })
     }
 

@@ -296,14 +296,6 @@ pub enum TestStep {
         /// The view.
         selector: String,
     },
-    /// Taps at a point of the window (`app.tap`): for what NSH does not lay
-    /// out, such as a native bar button.
-    Tap {
-        /// Across, in points.
-        x: f64,
-        /// Down, in points.
-        y: f64,
-    },
     /// Holds a press on the view for its long press delay (`app.longPress`).
     LongPress {
         /// The view.

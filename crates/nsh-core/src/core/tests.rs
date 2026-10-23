@@ -10779,10 +10779,12 @@ mod views {
         type Props = SystemItemPageProps;
         type Event = NoEvent;
 
+        // The core's own stack and screen: `nsh_base`'s wrap them.
+        #[allow(deprecated)]
         fn view(_: SystemItemPageProps, _: Scope<NoEvent>) -> impl IntoElement {
             stack().flex_1().child(
                 screen()
-                    .header_right_system_item("add")
+                    .header_right_system_item(crate::HeaderSystemItem::Add)
                     .header_right(view().on_press(|_: &()| {}))
                     .child(view().flex_1()),
             )
@@ -10806,7 +10808,7 @@ mod views {
                 _ => None,
             })
             .expect("a screen");
-        assert_eq!(config.right_system_item.as_deref(), Some("add"));
+        assert_eq!(config.right_system_item, Some(crate::HeaderSystemItem::Add));
         assert!(config.right.is_some(), "the trailing slot is set");
     }
 

@@ -14,8 +14,8 @@
 use std::cell::{Cell, RefCell};
 
 use nsh_core::{
-    Color, EdgeInsets, EventKind, EventPayload, ModalAnimation, ModalConfig, ModalPresentation,
-    NodeId, PayloadValue, Points, ScreenAnimation, ScreenConfig, Size,
+    Color, EdgeInsets, EventKind, EventPayload, HeaderSystemItem, ModalAnimation, ModalConfig,
+    ModalPresentation, NodeId, PayloadValue, Points, ScreenAnimation, ScreenConfig, Size,
 };
 use nsh_engine::EngineControl;
 use objc2::{
@@ -603,14 +603,13 @@ define_class!(
     }
 );
 
-/// The UIKit bar button an `headerRightSystemItem` draws: a press on it is a
-/// press on the screen's `headerRight` element, which the app listens to.
+/// The target of the UIKit bar button `ios={{ headerRightSystemItem }}`
+/// draws: a press on it presses the screen's `headerRight`, whose element
+/// the app listens to.
 struct BarItemIvars {
     mounter: SharedMounter,
     /// The screen whose trailing slot the button presses.
     screen: NodeId,
-    /// TEMP probe: the button, to show that the action ran.
-    item: std::cell::RefCell<Option<Retained<UIBarButtonItem>>>,
 }
 
 define_class!(
@@ -634,31 +633,33 @@ define_class!(
 
 impl BarItemTarget {
     fn new(mtm: MainThreadMarker, screen: NodeId, mounter: SharedMounter) -> Retained<Self> {
-        let this = Self::alloc(mtm).set_ivars(BarItemIvars {
-            mounter,
-            screen,
-            item: std::cell::RefCell::new(None),
-        });
+        let this = Self::alloc(mtm).set_ivars(BarItemIvars { mounter, screen });
         // SAFETY: NSObject's designated initializer.
         unsafe { msg_send![super(this), init] }
     }
 }
 
-/// UIKit's own bar button named `name` (`add`, `done`, …).
-fn system_bar_item(name: &str) -> Option<UIBarButtonSystemItem> {
-    Some(match name {
-        "add" => UIBarButtonSystemItem::Add,
-        "done" => UIBarButtonSystemItem::Done,
-        "close" => UIBarButtonSystemItem::Close,
-        "edit" => UIBarButtonSystemItem::Edit,
-        "compose" => UIBarButtonSystemItem::Compose,
-        "search" => UIBarButtonSystemItem::Search,
-        "share" => UIBarButtonSystemItem::Action,
-        "trash" => UIBarButtonSystemItem::Trash,
-        "save" => UIBarButtonSystemItem::Save,
-        "cancel" => UIBarButtonSystemItem::Cancel,
-        _ => return None,
-    })
+/// A system bar button: its item, the button and its target.
+type SystemBarItem = (
+    HeaderSystemItem,
+    Retained<UIBarButtonItem>,
+    Retained<BarItemTarget>,
+);
+
+/// UIKit's bar button of `item`.
+fn system_bar_item(item: HeaderSystemItem) -> UIBarButtonSystemItem {
+    match item {
+        HeaderSystemItem::Add => UIBarButtonSystemItem::Add,
+        HeaderSystemItem::Done => UIBarButtonSystemItem::Done,
+        HeaderSystemItem::Close => UIBarButtonSystemItem::Close,
+        HeaderSystemItem::Edit => UIBarButtonSystemItem::Edit,
+        HeaderSystemItem::Compose => UIBarButtonSystemItem::Compose,
+        HeaderSystemItem::Search => UIBarButtonSystemItem::Search,
+        HeaderSystemItem::Share => UIBarButtonSystemItem::Action,
+        HeaderSystemItem::Trash => UIBarButtonSystemItem::Trash,
+        HeaderSystemItem::Save => UIBarButtonSystemItem::Save,
+        HeaderSystemItem::Cancel => UIBarButtonSystemItem::Cancel,
+    }
 }
 
 impl StackDelegate {
@@ -795,8 +796,10 @@ impl StackHost {
 /// One screen.
 pub(crate) struct ScreenHost {
     pub(crate) controller: Retained<ScreenController>,
-    /// The target of an `headerRightSystemItem`, which UIKit keeps weakly.
-    right_target: RefCell<Option<Retained<BarItemTarget>>>,
+    /// The bar button of `ios={{ headerRightSystemItem }}`, made once per
+    /// item and kept while it stays, with its target (UIKit keeps a bar
+    /// button's target weakly).
+    right_system: RefCell<Option<SystemBarItem>>,
     /// The screen's root view, placed by the core.
     pub(crate) view: Retained<NshView>,
     pub(crate) config: ScreenConfig,
@@ -814,7 +817,7 @@ impl ScreenHost {
             controller,
             view,
             config: ScreenConfig::default(),
-            right_target: RefCell::new(None),
+            right_system: RefCell::new(None),
         }
     }
 
@@ -838,25 +841,33 @@ impl ScreenHost {
         };
         nav_item.setLeftBarButtonItem(bar_item(c.left).as_deref());
         nav_item.setLeftItemsSupplementBackButton(true);
-        // `headerRightSystemItem`: UIKit's button, which presses the app's
-        // `headerRight` element (the bar keeps its target weakly, so the
-        // screen holds it).
-        let system = match (&c.right_system_item, press) {
-            (Some(name), Some(mounter)) => system_bar_item(name).map(|kind| {
-                let target = BarItemTarget::new(mtm, self.controller.screen_id(), mounter);
-                let item = unsafe {
-                    UIBarButtonItem::initWithBarButtonSystemItem_target_action(
-                        UIBarButtonItem::alloc(mtm),
-                        kind,
-                        Some(&target),
-                        Some(objc2::sel!(nshPress:)),
-                    )
-                };
-                *target.ivars().item.borrow_mut() = Some(item.clone());
-                *self.right_target.borrow_mut() = Some(target);
-                item
-            }),
-            _ => None,
+        // `ios={{ headerRightSystemItem }}`: UIKit's button, which presses
+        // the app's `headerRight` (none without it). The same item keeps its
+        // button: rebuilding it on every header change would flash it.
+        let system = match (c.right_system_item, c.right, press) {
+            (Some(kind), Some(_), Some(mounter)) => {
+                let mut kept = self.right_system.borrow_mut();
+                if kept.as_ref().is_none_or(|(k, ..)| *k != kind) {
+                    let target = BarItemTarget::new(mtm, self.controller.screen_id(), mounter);
+                    // SAFETY: UIKit's designated initializer of a system bar
+                    // button; the target lives in `right_system` as long as
+                    // the button, and `nshPress:` is its action's selector.
+                    let item = unsafe {
+                        UIBarButtonItem::initWithBarButtonSystemItem_target_action(
+                            UIBarButtonItem::alloc(mtm),
+                            system_bar_item(kind),
+                            Some(&target),
+                            Some(objc2::sel!(nshPress:)),
+                        )
+                    };
+                    *kept = Some((kind, item, target));
+                }
+                kept.as_ref().map(|(_, item, _)| item.clone())
+            }
+            _ => {
+                self.right_system.borrow_mut().take();
+                None
+            }
         };
         match system {
             Some(item) => nav_item.setRightBarButtonItem(Some(&item)),

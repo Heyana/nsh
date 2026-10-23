@@ -376,9 +376,9 @@ pub struct ScreenConfig {
     pub left: Option<NodeId>,
     /// Trailing header item view.
     pub right: Option<NodeId>,
-    /// A system bar button (`add`, `done`, …) drawn in the trailing slot by
-    /// the platform instead of `right`; a press goes to `right_press`.
-    pub right_system_item: Option<Arc<str>>,
+    /// UIKit's own bar button in the trailing slot instead of `right`'s
+    /// view (iOS); a press on it presses `right`'s first pressable view.
+    pub right_system_item: Option<crate::HeaderSystemItem>,
     /// Custom title view.
     pub title_view: Option<NodeId>,
     /// The app's header (`header`): on a platform without a native header
