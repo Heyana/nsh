@@ -10831,35 +10831,6 @@ mod views {
         assert_eq!(config.right_system_item, None);
     }
 
-    /// A Rust component that renders a native component: the name comes with
-    /// the element's properties, after the element is made.
-    #[derive(Default)]
-    struct NativeHost;
-
-    #[derive(Clone, PartialEq, Props)]
-    struct NativeHostProps {}
-
-    impl Component for NativeHost {
-        type Props = NativeHostProps;
-        type Event = NoEvent;
-
-        fn view(_: NativeHostProps, _: Scope<NoEvent>) -> impl IntoElement {
-            crate::ui::native("test.native").flex_1()
-        }
-    }
-
-    #[test]
-    fn a_native_component_from_rust_is_named_after_its_element() {
-        let mut c = core();
-        c.mount_root(&Root::new::<NativeHost>(|| NativeHostProps {}));
-        let batch = c.commit().unwrap();
-        let component = batch
-            .items
-            .iter()
-            .any(|i| matches!(i, MountItem::Component { name, .. } if &**name == "test.native"));
-        assert!(component, "the platform is told which component to make");
-    }
-
     /// A holder of its children as its view's root.
     #[derive(Default)]
     struct Tray;

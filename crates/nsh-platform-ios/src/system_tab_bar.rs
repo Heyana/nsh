@@ -102,6 +102,34 @@ impl NshTabBar {
     }
 }
 
+/// The titles and icons after an `items` update: a list of titles leaves the
+/// icons alone (an update resends the titles whole, the icons stay), while
+/// tabs given as `{ title, icon }` carry their own.
+fn merge_items(items: &[JsonValue], titles: &mut Vec<String>, icons: &mut Vec<String>) {
+    *titles = items
+        .iter()
+        .map(|item| match item {
+            JsonValue::String(title) => title.clone(),
+            other => other
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        })
+        .collect();
+    if items.iter().any(|item| item.get("icon").is_some()) {
+        *icons = items
+            .iter()
+            .map(|item| {
+                item.get("icon")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or_default()
+                    .to_string()
+            })
+            .collect();
+    }
+}
+
 /// Shows `items` on `bar`, with `selected` chosen.
 fn show(bar: &UITabBar, items: &[Retained<UITabBarItem>], selected: usize) {
     if items.is_empty() {
@@ -113,21 +141,16 @@ fn show(bar: &UITabBar, items: &[Retained<UITabBarItem>], selected: usize) {
         bar.setSelectedItem(None);
         return;
     }
+    // A width first: items made for a bar with none keep no labels or icons
+    // (UIKit lays them out at the width it has when they are set).
+    if bar.bounds().size.width < 1.0 {
+        bar.sizeToFit();
+    }
     let array = NSArray::from_retained_slice(items);
     bar.setItems(Some(&array));
-    // A bar has no size of its own until it is asked for one: the element's
-    // frame is the box the app sized, the bar sits at its bottom.
+    // Items made while the bar had no width keep no labels: asking for its
+    // size gives it one (the core's frame still decides where it goes).
     bar.sizeToFit();
-    if let Some(container) = bar.superview() {
-        let bounds = container.bounds();
-        let natural = bar.sizeThatFits(CGSize::new(bounds.size.width, f64::INFINITY));
-        let height = natural.height;
-        let insets = container.safeAreaInsets();
-        bar.setFrame(CGRect::new(
-            CGPoint::new(0.0, bounds.size.height - height - insets.bottom),
-            CGSize::new(bounds.size.width, height),
-        ));
-    }
     bar.setNeedsLayout();
     bar.layoutIfNeeded();
     if let Some(item) = items.get(selected) {
@@ -151,10 +174,10 @@ define_class!(
     unsafe impl UITabBarDelegate for TabDelegate {
         #[unsafe(method(tabBar:didSelectItem:))]
         fn did_select(&self, _bar: &UITabBar, item: &UITabBarItem) {
-            log::info!("nsh/tabbar: selected {}", item.tag());
             self.ivars()
                 .context
-                .emit("select", serde_json::json!({ "index": item.tag() as u32 }));
+                // The index itself: `onSelect(index)`.
+                .emit("select", serde_json::json!(item.tag() as u32));
         }
     }
 );
@@ -170,10 +193,58 @@ impl TabDelegate {
 /// The tab bar of one `nsh/tabbar` element.
 pub(crate) struct SystemTabBar {
     bar: Retained<NshTabBar>,
+    /// The tabs' titles and icons, as the app gave them (its own props
+    /// arrive separately, in any order).
+    titles: Vec<String>,
+    icons: Vec<String>,
     context: ComponentContext,
     items: Rc<RefCell<Vec<Retained<UITabBarItem>>>>,
     mtm: MainThreadMarker,
     _delegate: Retained<TabDelegate>,
+}
+
+impl SystemTabBar {
+    /// Makes the items from the titles and icons the app gave, shows them,
+    /// and reports the bar's height. Its props arrive in any order, so this
+    /// runs on each.
+    fn rebuild(&mut self) {
+        let items: Vec<_> = self
+            .titles
+            .iter()
+            .enumerate()
+            .map(|(index, title)| {
+                let icon = self.icons.get(index).map(String::as_str).unwrap_or("");
+                let image = (!icon.is_empty())
+                    .then(|| UIImage::systemImageNamed(&NSString::from_str(icon)))
+                    .flatten();
+                // SAFETY: `UITabBarItem`'s initializer, with a title and
+                // image it keeps.
+                unsafe {
+                    UITabBarItem::initWithTitle_image_tag(
+                        UITabBarItem::alloc(self.mtm),
+                        Some(&NSString::from_str(title)),
+                        image.as_deref(),
+                        index as isize,
+                    )
+                }
+            })
+            .collect();
+        *self.items.borrow_mut() = items;
+        let items = self.items.borrow();
+        show(&self.bar, &items, self.bar.ivars().selected.get());
+        let width = self
+            .bar
+            .superview()
+            .map(|container| container.bounds().size.width)
+            .filter(|width| *width > 1.0)
+            .unwrap_or(393.0);
+        let natural = self
+            .bar
+            .sizeThatFits(CGSize::new(width, f64::INFINITY))
+            .height;
+        self.context.set_size(0.0, natural as f32);
+        drop(items);
+    }
 }
 
 impl NativeComponent for SystemTabBar {
@@ -182,50 +253,20 @@ impl NativeComponent for SystemTabBar {
     }
 
     fn set_prop(&mut self, name: &str, value: Option<&JsonValue>) {
+        // A component's own props arrive as `$items` from `nsh/native`
+        // (`nativeComponent`) and as `items` from a Rust component.
+        let name = name.strip_prefix('$').unwrap_or(name);
         match (name, value) {
             ("items", Some(JsonValue::Array(items))) => {
-                let parsed: Vec<_> = items
+                merge_items(items, &mut self.titles, &mut self.icons);
+                self.rebuild();
+            }
+            ("icons", Some(JsonValue::Array(icons))) => {
+                self.icons = icons
                     .iter()
-                    .enumerate()
-                    .map(|(index, item)| {
-                        let title = item
-                            .get("title")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default();
-                        let icon = item
-                            .get("icon")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default();
-                        let image = (!icon.is_empty())
-                            .then(|| UIImage::systemImageNamed(&NSString::from_str(icon)))
-                            .flatten();
-                        let item = unsafe {
-                            UITabBarItem::initWithTitle_image_tag(
-                                UITabBarItem::alloc(self.mtm),
-                                Some(&NSString::from_str(title)),
-                                image.as_deref(),
-                                index as isize,
-                            )
-                        };
-                        item
-                    })
+                    .map(|icon| icon.as_str().unwrap_or_default().to_string())
                     .collect();
-                *self.items.borrow_mut() = parsed;
-                let items = self.items.borrow();
-                show(&self.bar, &items, self.bar.ivars().selected.get());
-                // The bar's own height: the app leaves it open and places the
-                // element at the bottom.
-                let width = self
-                    .bar
-                    .superview()
-                    .map(|container| container.bounds().size.width)
-                    .filter(|width| *width > 1.0)
-                    .unwrap_or(393.0);
-                let natural = self
-                    .bar
-                    .sizeThatFits(CGSize::new(width, f64::INFINITY))
-                    .height;
-                self.context.set_size(0.0, natural as f32);
+                self.rebuild();
             }
             ("selected", Some(JsonValue::Number(index))) => {
                 let selected = index.as_u64().unwrap_or(0) as usize;
@@ -250,6 +291,8 @@ pub(crate) fn register(view: &AppView) {
             bar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
             Box::new(SystemTabBar {
                 bar,
+                titles: Vec::new(),
+                icons: Vec::new(),
                 context: context.clone(),
                 items,
                 mtm,
@@ -257,4 +300,32 @@ pub(crate) fn register(view: &AppView) {
             }) as Box<dyn NativeComponent>
         }),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::merge_items;
+    use serde_json::json;
+
+    /// A title list resent with one more tab keeps the icons the app gave
+    /// beside them; tabs given as objects carry their own.
+    #[test]
+    fn a_titles_only_update_keeps_the_icons() {
+        let mut titles = Vec::new();
+        let mut icons = vec!["house".to_string()];
+        merge_items(&[json!("A")], &mut titles, &mut icons);
+        merge_items(&[json!("A"), json!("B")], &mut titles, &mut icons);
+        assert_eq!(titles, ["A", "B"]);
+        assert_eq!(icons, ["house"]);
+
+        merge_items(
+            &[
+                json!({ "title": "A", "icon": "star" }),
+                json!({ "title": "B", "icon": "bell" }),
+            ],
+            &mut titles,
+            &mut icons,
+        );
+        assert_eq!(icons, ["star", "bell"]);
+    }
 }

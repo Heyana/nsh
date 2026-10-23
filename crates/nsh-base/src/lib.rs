@@ -30,7 +30,6 @@ mod safe_area;
 mod selection_area;
 mod sheet;
 mod switch;
-mod tab_bar;
 mod tabs;
 pub mod text_view;
 mod theme;
@@ -79,7 +78,6 @@ pub use crate::{
     selection_area::{SelectionArea, SelectionAreaElement, SelectionAreaProps, selection_area},
     sheet::{Sheet, SheetElement, SheetEvent, SheetProps, sheet},
     switch::{Switch, SwitchElement, SwitchEvent, SwitchProps, switch},
-    tab_bar::{TabBar, TabBarElement, TabBarEvent, TabBarProps, tab_bar},
     tabs::{Tab, TabElement, TabEvent, TabProps, Tabs, TabsElement, TabsProps, tab, tabs},
     text_view::{
         CodeHighlighter, MarkdownExtension, MarkdownOptions, MarkdownPlugin, MarkdownPlugins,
@@ -118,7 +116,6 @@ pub fn registry() -> Registry {
         .register::<ResizablePanelGroup>()
         .register::<ResizablePanel>()
         .register::<Switch>()
-        .register::<TabBar>()
         .register::<Progress>()
         .register::<Tab>()
         .register::<Tabs>()
@@ -173,7 +170,6 @@ mod tests {
                 "Submenu",
                 "Switch",
                 "Tab",
-                "TabBar",
                 "Tabs",
                 "TextView",
                 "Tooltip"
