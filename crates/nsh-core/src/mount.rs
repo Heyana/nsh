@@ -376,6 +376,9 @@ pub struct ScreenConfig {
     pub left: Option<NodeId>,
     /// Trailing header item view.
     pub right: Option<NodeId>,
+    /// A system bar button (`add`, `done`, …) drawn in the trailing slot by
+    /// the platform instead of `right`; a press goes to `right_press`.
+    pub right_system_item: Option<Arc<str>>,
     /// Custom title view.
     pub title_view: Option<NodeId>,
     /// The app's header (`header`): on a platform without a native header
@@ -406,6 +409,7 @@ impl Default for ScreenConfig {
             animation: ScreenAnimation::Default,
             left: None,
             right: None,
+            right_system_item: None,
             title_view: None,
             header_view: None,
             header_height: Points::ZERO,

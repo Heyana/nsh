@@ -675,6 +675,17 @@ impl Screen {
         })
     }
 
+    /// The trailing header button is UIKit's own (`add`, `done`, `close`,
+    /// `edit`, `compose`, `search`, `share`, `trash`, `save`, `cancel`), drawn
+    /// instead of the `headerRight` view (iOS; a press goes to that view).
+    pub fn header_right_system_item(self, item: impl IntoReactive<super::SharedString>) -> Self {
+        self.bind_prop(item, |t| {
+            Prop::Screen(ScreenProp::HeaderRightSystemItem(Some(Arc::from(
+                t.as_str(),
+            ))))
+        })
+    }
+
     /// Whether the back button shows (default true).
     pub fn header_back_visible(self, visible: impl IntoReactive<bool>) -> Self {
         self.bind_prop(visible, |v| Prop::Screen(ScreenProp::HeaderBackVisible(v)))

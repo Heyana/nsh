@@ -11,7 +11,7 @@
 //! mounted (`popOnSwipe`, `popOnBack`, `closeOnSwipe`, `closeOnEscape`),
 //! never from JS.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 
 use nsh_core::{
     Color, EdgeInsets, EventKind, EventPayload, ModalAnimation, ModalConfig, ModalPresentation,
@@ -28,11 +28,11 @@ use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString};
 use objc2_quartz_core::{CAMediaTiming, CATransition};
 use objc2_ui_kit::{
     NSForegroundColorAttributeName, UIAdaptivePresentationControllerDelegate, UIBarButtonItem,
-    UIBehavioralStyle, UIColor, UIEdgeInsets, UIGestureRecognizer, UIGestureRecognizerDelegate,
-    UIInterfaceOrientationMask, UIModalPresentationStyle, UIModalTransitionStyle, UINavigationBar,
-    UINavigationBarAppearance, UINavigationController, UINavigationControllerDelegate,
-    UINavigationItem, UINavigationItemLargeTitleDisplayMode, UIPresentationController, UIResponder,
-    UIView, UIViewAutoresizing, UIViewController,
+    UIBarButtonSystemItem, UIBehavioralStyle, UIColor, UIEdgeInsets, UIGestureRecognizer,
+    UIGestureRecognizerDelegate, UIInterfaceOrientationMask, UIModalPresentationStyle,
+    UIModalTransitionStyle, UINavigationBar, UINavigationBarAppearance, UINavigationController,
+    UINavigationControllerDelegate, UINavigationItem, UINavigationItemLargeTitleDisplayMode,
+    UIPresentationController, UIResponder, UIView, UIViewAutoresizing, UIViewController,
 };
 
 use crate::{mount::SharedMounter, native_view::NshView};
@@ -603,6 +603,64 @@ define_class!(
     }
 );
 
+/// The UIKit bar button an `headerRightSystemItem` draws: a press on it is a
+/// press on the screen's `headerRight` element, which the app listens to.
+struct BarItemIvars {
+    mounter: SharedMounter,
+    /// The screen whose trailing slot the button presses.
+    screen: NodeId,
+    /// TEMP probe: the button, to show that the action ran.
+    item: std::cell::RefCell<Option<Retained<UIBarButtonItem>>>,
+}
+
+define_class!(
+    #[unsafe(super(NSObject))]
+    #[thread_kind = MainThreadOnly]
+    #[ivars = BarItemIvars]
+    struct BarItemTarget;
+
+    impl BarItemTarget {
+        #[unsafe(method(nshPress:))]
+        fn press(&self, _sender: Option<&NSObject>) {
+            let ivars = self.ivars();
+            if let Ok(mut m) = ivars.mounter.get(self.mtm()).try_borrow_mut()
+                && let Some(m) = m.as_mut()
+            {
+                m.press_trailing_header(ivars.screen);
+            }
+        }
+    }
+);
+
+impl BarItemTarget {
+    fn new(mtm: MainThreadMarker, screen: NodeId, mounter: SharedMounter) -> Retained<Self> {
+        let this = Self::alloc(mtm).set_ivars(BarItemIvars {
+            mounter,
+            screen,
+            item: std::cell::RefCell::new(None),
+        });
+        // SAFETY: NSObject's designated initializer.
+        unsafe { msg_send![super(this), init] }
+    }
+}
+
+/// UIKit's own bar button named `name` (`add`, `done`, …).
+fn system_bar_item(name: &str) -> Option<UIBarButtonSystemItem> {
+    Some(match name {
+        "add" => UIBarButtonSystemItem::Add,
+        "done" => UIBarButtonSystemItem::Done,
+        "close" => UIBarButtonSystemItem::Close,
+        "edit" => UIBarButtonSystemItem::Edit,
+        "compose" => UIBarButtonSystemItem::Compose,
+        "search" => UIBarButtonSystemItem::Search,
+        "share" => UIBarButtonSystemItem::Action,
+        "trash" => UIBarButtonSystemItem::Trash,
+        "save" => UIBarButtonSystemItem::Save,
+        "cancel" => UIBarButtonSystemItem::Cancel,
+        _ => return None,
+    })
+}
+
 impl StackDelegate {
     fn new(mtm: MainThreadMarker, stack: NodeId, mounter: SharedMounter) -> Retained<Self> {
         let this = Self::alloc(mtm).set_ivars(StackDelegateIvars { stack, mounter });
@@ -737,6 +795,8 @@ impl StackHost {
 /// One screen.
 pub(crate) struct ScreenHost {
     pub(crate) controller: Retained<ScreenController>,
+    /// The target of an `headerRightSystemItem`, which UIKit keeps weakly.
+    right_target: RefCell<Option<Retained<BarItemTarget>>>,
     /// The screen's root view, placed by the core.
     pub(crate) view: Retained<NshView>,
     pub(crate) config: ScreenConfig,
@@ -754,13 +814,18 @@ impl ScreenHost {
             controller,
             view,
             config: ScreenConfig::default(),
+            right_target: RefCell::new(None),
         }
     }
 
     /// Applies the header options; `item` returns the view of a header item.
     /// The bar is UIKit's: a `header` slot (`header_view`, the whole bar
     /// where NSH draws it) is never placed, so it stays out of sight.
-    pub(crate) fn apply_header(&self, item: impl Fn(NodeId) -> Option<Retained<UIView>>) {
+    pub(crate) fn apply_header(
+        &self,
+        item: impl Fn(NodeId) -> Option<Retained<UIView>>,
+        press: Option<SharedMounter>,
+    ) {
         let mtm = self.controller.mtm();
         let c = &self.config;
         let nav_item = self.controller.navigationItem();
@@ -773,7 +838,30 @@ impl ScreenHost {
         };
         nav_item.setLeftBarButtonItem(bar_item(c.left).as_deref());
         nav_item.setLeftItemsSupplementBackButton(true);
-        nav_item.setRightBarButtonItem(bar_item(c.right).as_deref());
+        // `headerRightSystemItem`: UIKit's button, which presses the app's
+        // `headerRight` element (the bar keeps its target weakly, so the
+        // screen holds it).
+        let system = match (&c.right_system_item, press) {
+            (Some(name), Some(mounter)) => system_bar_item(name).map(|kind| {
+                let target = BarItemTarget::new(mtm, self.controller.screen_id(), mounter);
+                let item = unsafe {
+                    UIBarButtonItem::initWithBarButtonSystemItem_target_action(
+                        UIBarButtonItem::alloc(mtm),
+                        kind,
+                        Some(&target),
+                        Some(objc2::sel!(nshPress:)),
+                    )
+                };
+                *target.ivars().item.borrow_mut() = Some(item.clone());
+                *self.right_target.borrow_mut() = Some(target);
+                item
+            }),
+            _ => None,
+        };
+        match system {
+            Some(item) => nav_item.setRightBarButtonItem(Some(&item)),
+            None => nav_item.setRightBarButtonItem(bar_item(c.right).as_deref()),
+        }
         nav_item.setHidesBackButton(!c.back_visible);
         nav_item.setBackButtonTitle(c.back_title.as_deref().map(NSString::from_str).as_deref());
         nav_item.setLargeTitleDisplayMode(if c.large_title {

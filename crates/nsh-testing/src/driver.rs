@@ -20,6 +20,8 @@ pub(crate) trait Driver: Send {
     /// Names the step the batches that come next belong to (`--trace`).
     fn step(&mut self, name: &str);
     fn press(&mut self, selector: &str) -> Result<(), String>;
+    /// Taps at `x`, `y` of the window: for what NSH does not lay out.
+    fn tap(&mut self, x: f64, y: f64) -> Result<(), String>;
     fn long_press(&mut self, selector: &str) -> Result<(), String>;
     fn type_text(&mut self, selector: &str, text: &str) -> Result<(), String>;
     fn submit(&mut self, selector: &str) -> Result<(), String>;
@@ -88,6 +90,9 @@ impl Driver for Headless {
     }
     fn press(&mut self, selector: &str) -> Result<(), String> {
         Headless::press(self, selector)
+    }
+    fn tap(&mut self, _x: f64, _y: f64) -> Result<(), String> {
+        Err(headless_only("`tap()`"))
     }
     fn long_press(&mut self, selector: &str) -> Result<(), String> {
         Headless::long_press(self, selector)
@@ -362,6 +367,9 @@ impl Driver for Remote {
         self.action(TestStep::Press {
             selector: selector.into(),
         })
+    }
+    fn tap(&mut self, x: f64, y: f64) -> Result<(), String> {
+        self.action(TestStep::Tap { x, y })
     }
     fn long_press(&mut self, selector: &str) -> Result<(), String> {
         self.action(TestStep::LongPress {

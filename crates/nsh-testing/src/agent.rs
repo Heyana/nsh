@@ -1166,6 +1166,7 @@ impl Agent {
         match step {
             TestStep::Ready { timeout_ms } => done(self.ready(Duration::from_millis(timeout_ms))),
             TestStep::Press { selector } => done(self.press(&selector)),
+            TestStep::Tap { x, y } => done(self.tap(x, y)),
             TestStep::LongPress { selector } => done(self.long_press(&selector)),
             TestStep::Type { selector, text } => done(self.type_text(&selector, &text)),
             TestStep::Submit { selector } => done(self.submit(&selector)),
@@ -1512,6 +1513,14 @@ impl Agent {
             "`{selector}` did not come into view; {}",
             self.on_screen()
         ))
+    }
+
+    /// A finger down and up at `x`, `y` of the window: what the app shows
+    /// there is pressed, whether NSH laid it out or the platform did.
+    fn tap(&self, x: f64, y: f64) -> Result<(), String> {
+        self.native
+            .press(Point::new(Points(x as f32), Points(y as f32)));
+        self.settled()
     }
 
     fn press(&self, selector: &str) -> Result<(), String> {

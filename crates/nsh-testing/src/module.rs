@@ -1364,6 +1364,12 @@ impl App {
         step(&this, move |app| app.press(&selector)).await
     }
 
+    /// Taps at `x`, `y` (the window's points): what NSH does not lay out has
+    /// no selector to press by — a native bar button, for one.
+    pub async fn tap(this: Instance<Self>, x: f64, y: f64) -> Result<(), String> {
+        step(&this, move |app| app.tap(x, y)).await
+    }
+
     /// Types `text` at the end of the input `selector` names (or the first
     /// input in it; `text:` matches an input's text or placeholder too),
     /// key by key; a line break in a single line is the return key.

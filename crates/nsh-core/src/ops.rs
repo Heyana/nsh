@@ -1106,6 +1106,12 @@ pub enum ScreenProp {
     /// label of the back button leading back to this page.
     #[prop(js = "headerBackTitle", on = SCREEN)]
     HeaderBackTitle(Option<Arc<str>>),
+    /// `headerRightSystemItem` (iOS: the system header; ignored elsewhere):
+    /// UIKit's own bar button (`add`, `done`, `close`, `edit`, `compose`,
+    /// `search`, `share`, `trash`, `save`, `cancel`) in place of the view of
+    /// `headerRight`. A press goes to that element, as a press on it does.
+    #[prop(js = "headerRightSystemItem", on = SCREEN)]
+    HeaderRightSystemItem(Option<Arc<str>>),
     /// `headerBackVisible`: the system header's back button shows (default
     /// true; iOS and Android).
     #[prop(js = "headerBackVisible", default = true, on = SCREEN)]
