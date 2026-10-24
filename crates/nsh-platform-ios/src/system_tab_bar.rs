@@ -36,6 +36,9 @@ struct BarIvars {
     /// The app keeps it out of sight (`TabBar.hidden`, switching tabs). A pop
     /// must not undo it, and the app taking over clears the stack's say.
     prop_hidden: Cell<bool>,
+    /// The state the transform was last set for: a layout pass must not set it
+    /// again, or it ends a running animation (a snap, not a slide).
+    applied: Cell<bool>,
     context: ComponentContext,
 }
 
@@ -59,20 +62,14 @@ define_class!(
         /// its transition): off the bottom, or back where the app put it.
         #[unsafe(method(nshSetBottomHidden:))]
         fn set_bottom_hidden(&self, hidden: bool) {
-            {
-                use std::io::Write;
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/nsh-b.log") {
-                    let _ = writeln!(f, "set {hidden} window={} in_super={}", self.window().is_some(), self.superview().is_some());
-                }
+            // The stack on screen saying "shown" settles it: the app's word was
+            // about the tab it left, and holding it would keep the bar down
+            // until JS catches up — it would then snap in, not slide.
+            if !hidden {
+                self.ivars().prop_hidden.set(false);
             }
             self.ivars().nav_hidden.set(hidden);
             self.apply_bottom_hidden();
-            {
-                use std::io::Write;
-                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/nsh-b.log") {
-                    let _ = writeln!(f, "  after t42={:.1}", self.layer().transform().m42);
-                }
-            }
         }
 
         /// A bar makes its item views once it is in a window: the items set
@@ -108,7 +105,9 @@ define_class!(
             if height != self.ivars().height.replace(height) {
                 self.ivars().context.set_size(0.0, height as f32);
             }
-            self.apply_bottom_hidden();
+            if self.bottom_bar_hidden() != self.ivars().applied.get() {
+                self.apply_bottom_hidden();
+            }
             if width < 1.0 || width == self.ivars().width.get() {
                 return;
             }
@@ -143,6 +142,7 @@ impl NshTabBar {
 
     fn apply_bottom_hidden(&self) {
         let hidden = self.bottom_bar_hidden();
+        self.ivars().applied.set(hidden);
         // Far enough to clear whatever inset the app left below the bar.
         let offset = if hidden {
             self.bounds().size.height + 200.0
@@ -182,6 +182,7 @@ impl NshTabBar {
             height: Cell::new(0.0),
             nav_hidden: Cell::new(false),
             prop_hidden: Cell::new(false),
+            applied: Cell::new(false),
             context,
         });
         // SAFETY: `UITabBar`'s initializer is `UIView`'s `initWithFrame:`;
