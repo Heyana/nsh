@@ -138,9 +138,18 @@ impl NshTabBar {
         } else {
             0.0
         };
-        let transform =
-            objc2_quartz_core::CATransform3D::new_translation(0.0, offset, 0.0);
-        self.layer().setTransform(transform);
+        // The view's own transform, not its layer's: UIKit scrubs a view
+        // animation with an interactive transition (the swipe back follows the
+        // finger) only for view properties.
+        let transform = objc2_core_foundation::CGAffineTransform {
+            a: 1.0,
+            b: 0.0,
+            c: 0.0,
+            d: 1.0,
+            tx: 0.0,
+            ty: offset,
+        };
+        self.setTransform(transform);
         // Back in place: the frame may have been left stale while hidden.
         if !hidden
             && let Some(host) = self.superview()
