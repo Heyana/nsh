@@ -1031,7 +1031,11 @@ impl Mounter {
                     ..
                 }) = self.slot_mut(id)
                 {
+                    let hides = config.hides_bottom_bar_when_pushed;
                     screen.config = *config;
+                    // Before the push that shows it: `willShow` reads this the
+                    // moment the screen goes on the stack.
+                    screen.set_hides_bottom_bar(hides);
                     self.dirty_headers.push(id);
                     if let Some(&stack) = self.hosts.get(&id) {
                         self.dirty_stacks.push(stack);
@@ -2559,16 +2563,7 @@ impl Mounter {
                     Some(Native::Screen(screen)) => Some(screen.config.animation),
                     _ => None,
                 });
-            let hides_bottom_bar = screens
-                .last()
-                .and_then(|(id, ..)| match self.slot(*id).map(|s| &s.native) {
-                    Some(Native::Screen(screen)) => {
-                        Some(screen.config.hides_bottom_bar_when_pushed)
-                    }
-                    _ => None,
-                })
-                .unwrap_or(false);
-            stack.reconcile(&screens, leaving, hides_bottom_bar);
+            stack.reconcile(&screens, leaving);
             if let Some(Slot {
                 native: Native::Stack(stack),
                 ..

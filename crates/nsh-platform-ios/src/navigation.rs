@@ -21,13 +21,13 @@ use nsh_core::{
 };
 use nsh_engine::EngineControl;
 use objc2::{
-    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    ClassType, DefinedClass, sel, MainThreadMarker, MainThreadOnly, define_class, msg_send,
     rc::Retained,
     runtime::{AnyClass, AnyObject, ProtocolObject},
 };
 use objc2_core_foundation::{CGFloat, CGSize};
 use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString};
-use objc2_quartz_core::{CAMediaTiming, CATransform3D, CATransition};
+use objc2_quartz_core::{CAMediaTiming, CATransition};
 use objc2_ui_kit::{
     NSForegroundColorAttributeName, UIAdaptivePresentationControllerDelegate, UIBarButtonItem,
     UIBarButtonSystemItem, UIBehavioralStyle, UIColor, UIEdgeInsets, UIGestureRecognizer,
@@ -571,6 +571,22 @@ define_class!(
             controller: &UIViewController,
             animated: bool,
         ) {
+            // UIKit's own hook for this: it runs for pushes and pops, before
+            // the transition starts, with a live `transitionCoordinator` — the
+            // place a `UITabBarController` moves its bar from.
+            slide_bottom_bar(nav, bottom_bar_hidden(nav));
+            // A swipe back that the user cancels ends without `didShow`, so the
+            // bar has to be put back where the stack now says it belongs once
+            // the interaction ends (a completed one lands on the same value).
+            if let Some(coordinator) = nav.transitionCoordinator() {
+                let nav = unsafe { Retained::retain(nav as *const UINavigationController as *mut UINavigationController) }.expect("the navigation controller lives");
+                let block = RcBlock::new(
+                    move |_context: NonNull<ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>>| {
+                        slide_bottom_bar(&nav, bottom_bar_hidden(&nav));
+                    },
+                );
+                coordinator.notifyWhenInteractionChangesUsingBlock(&block);
+            }
             self.with_mounter(|m| m.stack_will_show(nav, controller, animated));
         }
 
@@ -586,6 +602,9 @@ define_class!(
             // hierarchy after `reconcile` has sized what was there: the one
             // it brought in is only reachable here.
             size_screens(nav);
+            // Safety net: whatever the transition did, the bar ends where the
+            // stack says it goes.
+            slide_bottom_bar(nav, bottom_bar_hidden(nav));
             let stack = self.ivars().stack;
             self.with_mounter(|m| m.stack_did_show(stack));
             // UIKit installs its own pop delegate while loading the navigation
@@ -755,7 +774,6 @@ impl StackHost {
         &self,
         screens: &[(NodeId, Retained<ScreenController>, ScreenAnimation)],
         leaving: Option<ScreenAnimation>,
-        hides_bottom_bar: bool,
     ) {
         let desired: Vec<Retained<UIViewController>> = screens
             .iter()
@@ -795,25 +813,37 @@ impl StackHost {
         self.nav.ivars().applying.set(true);
         self.nav.setViewControllers_animated(&array, animated);
         self.nav.ivars().applying.set(false);
-        // `hidesBottomBarWhenPushed`: the system tab bar leaves and comes back
-        // in the transition's own animation, as UIKit does with a
-        // `UITabBarController`'s bar (the app's bar is a plain `UITabBar`, so
-        // nothing moves it for us).
-        if animated {
-            self.slide_bottom_bar(hides_bottom_bar);
-        }
+
         // A stack whose size is settled is never laid out again for the
         // screens it is given, so nothing would size a screen UIKit left
         // empty until something unrelated (a rotation, a change of
         // appearance) forces a layout pass.
         size_screens(&self.nav);
     }
+}
 
-    /// Slides the app's system tab bars out (`hiding`) or back in, in the
-    /// running transition's animation: same duration, same curve, one step
-    /// with the page. Nothing is unmounted, so the bar is never rebuilt.
-    fn slide_bottom_bar(&self, hiding: bool) {
-        let Some(view) = self.nav.view() else {
+/// Whether the bar belongs off screen: UIKit's own rule for
+/// `hidesBottomBarWhenPushed` — the bar stays hidden while **any** screen of
+/// the stack asks for it, until that screen is popped (Apple: "the bottom bar
+/// remains hidden until the view controller is popped from the stack").
+pub(crate) fn bottom_bar_hidden(nav: &UINavigationController) -> bool {
+    let controllers = nav.viewControllers();
+    controllers.iter().any(|controller| {
+        // SAFETY: asking UIKit for the property it defines for every screen.
+        let hides: bool = unsafe { msg_send![&*controller, hidesBottomBarWhenPushed] };
+        hides
+    })
+}
+
+/// Slides the app's system tab bars out (`hiding`) or back in, in the
+/// running transition's animation: same duration, same curve, one step with
+/// the page. Nothing is unmounted, so the bar is never rebuilt.
+///
+/// Called from `navigationController:willShowViewController:animated:` — the
+/// hook UIKit runs for both pushes and pops, before the transition starts —
+/// which is where a `UITabBarController` moves its own bar from.
+pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool) {    
+        let Some(view) = nav.view() else {
             return;
         };
         let Some(parent) = view.superview() else {
@@ -853,30 +883,34 @@ impl StackHost {
         if bars.is_empty() {
             return;
         }
-        // Far enough that the bar clears the bottom of the app's view, whatever
-        // inset the app left below it.
-        let offset = if hiding { parent.bounds().size.height } else { 0.0 };
-        let slide = Rc::new(move || {
-            let transform = CATransform3D::new_translation(0.0, offset, 0.0);
-            for bar in &bars {
-                bar.layer().setTransform(transform);
+        // The bar moves itself (`nshSetBottomHidden:`): its own layout sets the
+        // frame on every pass, so a transform set from here would be undone by
+        // the next one whenever a screen below it changes size.
+        let bars = Rc::new(bars);
+        let apply = Rc::new(move || {
+            for bar in bars.iter() {
+                // SAFETY: asking a view whether it is ours before messaging it.
+                let ours: bool =
+                    unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
+                if ours {
+                    let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
+                }
             }
         });
-        let slide = slide.clone();
-        match self.nav.transitionCoordinator() {
+        let apply = apply.clone();
+        match nav.transitionCoordinator() {
             Some(coordinator) => {
                 let block = RcBlock::new(
                     move |_context: NonNull<ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>>| {
-                        slide();
+                        apply();
                     },
                 );
                 coordinator.animateAlongsideTransition_completion(Some(&block), None);
             }
-            // Not in a transition (an animated change with nothing to
+            // Not in a transition (the first screen, a change with nothing to
             // animate): place it at once.
-            None => slide(),
+            None => apply(),
         }
-    }
 }
 
 /// One screen.
@@ -997,6 +1031,19 @@ impl ScreenHost {
 /// idiom UIKit otherwise moves a navigation bar's contents into the window's
 /// toolbar (the back button next to the traffic lights), where the title,
 /// the header's colors and the core's layout do not apply.
+impl ScreenHost {
+    /// UIKit's own `hidesBottomBarWhenPushed`, so
+    /// `navigationController:willShowViewController:` reads the page's choice
+    /// the way it would inside a `UITabBarController`. Set as soon as the
+    /// screen's options arrive — before the push that shows it.
+    pub(crate) fn set_hides_bottom_bar(&self, hides: bool) {
+        // SAFETY: UIKit's property on the controller this screen wraps.
+        let _: () = unsafe {
+            msg_send![&*self.controller, setHidesBottomBarWhenPushed: hides]
+        };
+    }
+}
+
 pub(crate) fn keep_in_window(bar: &UINavigationBar) {
     // `preferredBehavioralStyle` is iOS 16+ (nsh supports iOS 15, where
     // bars always stay in the window).
