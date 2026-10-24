@@ -3186,10 +3186,13 @@ fn a_screen_keeps_the_bottom_bar_unless_it_says_otherwise() {
     // `hidesBottomBarWhenPushed` is off unless the page asks for it: the
     // platform looks the flag up on the screen it shows.
     let batch = c.commit().unwrap();
-    assert!(batch.items.iter().any(
-        |i| matches!(i, MountItem::ScreenConfig { id: 3, config }
-            if !config.hides_bottom_bar_when_pushed)
-    ));
+    assert!(
+        batch
+            .items
+            .iter()
+            .any(|i| matches!(i, MountItem::ScreenConfig { id: 3, config }
+            if !config.hides_bottom_bar_when_pushed))
+    );
     apply(
         &mut c,
         vec![Op::SetProp {
@@ -3198,10 +3201,13 @@ fn a_screen_keeps_the_bottom_bar_unless_it_says_otherwise() {
         }],
     );
     let batch = c.commit().unwrap();
-    assert!(batch.items.iter().any(
-        |i| matches!(i, MountItem::ScreenConfig { id: 3, config }
-            if config.hides_bottom_bar_when_pushed)
-    ));
+    assert!(
+        batch
+            .items
+            .iter()
+            .any(|i| matches!(i, MountItem::ScreenConfig { id: 3, config }
+            if config.hides_bottom_bar_when_pushed))
+    );
 }
 
 #[test]

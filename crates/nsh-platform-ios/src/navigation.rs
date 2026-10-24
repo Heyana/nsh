@@ -11,7 +11,11 @@
 //! mounted (`popOnSwipe`, `popOnBack`, `closeOnSwipe`, `closeOnEscape`),
 //! never from JS.
 
-use std::{cell::{Cell, RefCell}, ptr::NonNull, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    ptr::NonNull,
+    rc::Rc,
+};
 
 use block2::RcBlock;
 
@@ -21,9 +25,10 @@ use nsh_core::{
 };
 use nsh_engine::EngineControl;
 use objc2::{
-    ClassType, DefinedClass, sel, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
     rc::Retained,
     runtime::{AnyClass, AnyObject, ProtocolObject},
+    sel,
 };
 use objc2_core_foundation::{CGFloat, CGSize};
 use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString};
@@ -579,9 +584,16 @@ define_class!(
             // bar has to be put back where the stack now says it belongs once
             // the interaction ends (a completed one lands on the same value).
             if let Some(coordinator) = nav.transitionCoordinator() {
-                let nav = unsafe { Retained::retain(nav as *const UINavigationController as *mut UINavigationController) }.expect("the navigation controller lives");
+                let nav = unsafe {
+                    Retained::retain(
+                        nav as *const UINavigationController as *mut UINavigationController,
+                    )
+                }
+                .expect("the navigation controller lives");
                 let block = RcBlock::new(
-                    move |_context: NonNull<ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>>| {
+                    move |_context: NonNull<
+                        ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>,
+                    >| {
                         slide_bottom_bar(&nav, bottom_bar_hidden(&nav));
                     },
                 );
@@ -842,75 +854,76 @@ pub(crate) fn bottom_bar_hidden(nav: &UINavigationController) -> bool {
 /// Called from `navigationController:willShowViewController:animated:` — the
 /// hook UIKit runs for both pushes and pops, before the transition starts —
 /// which is where a `UITabBarController` moves its own bar from.
-pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool) {    
-        let Some(view) = nav.view() else {
-            return;
-        };
-        let Some(parent) = view.superview() else {
-            return;
-        };
-        // The bar is a component's view, nested in the container the component
-        // system puts it in: look through the siblings' subtrees for it.
-        fn collect_tab_bars(view: &UIView, depth: usize, out: &mut Vec<Retained<UIView>>) {
-            if depth == 0 {
-                return;
-            }
-            for sub in view.subviews().iter() {
-                // SAFETY: asking UIKit for the class of a subview.
-                let is_bar: bool = unsafe {
-                    msg_send![&*sub, isKindOfClass: objc2_ui_kit::UITabBar::class()]
-                };
-                if is_bar {
-                    out.push(sub.clone());
-                } else {
-                    collect_tab_bars(&sub, depth - 1, out);
-                }
-            }
-        }
-        // The bar is not a direct sibling of the nav view: both sit in the
-        // component containers of the app's root view, so walk up until an
-        // ancestor holds one.
-        let mut bars: Vec<Retained<UIView>> = Vec::new();
-        let mut ancestor = Some(parent.clone());
-        for _ in 0..6 {
-            let Some(view) = ancestor else { break };
-            collect_tab_bars(&view, 4, &mut bars);
-            if !bars.is_empty() {
-                break;
-            }
-            ancestor = view.superview();
-        }
-        if bars.is_empty() {
+pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool) {
+    let Some(view) = nav.view() else {
+        return;
+    };
+    let Some(parent) = view.superview() else {
+        return;
+    };
+    // The bar is a component's view, nested in the container the component
+    // system puts it in: look through the siblings' subtrees for it.
+    fn collect_tab_bars(view: &UIView, depth: usize, out: &mut Vec<Retained<UIView>>) {
+        if depth == 0 {
             return;
         }
-        // The bar moves itself (`nshSetBottomHidden:`): its own layout sets the
-        // frame on every pass, so a transform set from here would be undone by
-        // the next one whenever a screen below it changes size.
-        let bars = Rc::new(bars);
-        let apply = Rc::new(move || {
-            for bar in bars.iter() {
-                // SAFETY: asking a view whether it is ours before messaging it.
-                let ours: bool =
-                    unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
-                if ours {
-                    let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
-                }
+        for sub in view.subviews().iter() {
+            // SAFETY: asking UIKit for the class of a subview.
+            let is_bar: bool =
+                unsafe { msg_send![&*sub, isKindOfClass: objc2_ui_kit::UITabBar::class()] };
+            if is_bar {
+                out.push(sub.clone());
+            } else {
+                collect_tab_bars(&sub, depth - 1, out);
             }
-        });
-        let apply = apply.clone();
-        match nav.transitionCoordinator() {
-            Some(coordinator) => {
-                let block = RcBlock::new(
-                    move |_context: NonNull<ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>>| {
-                        apply();
-                    },
-                );
-                coordinator.animateAlongsideTransition_completion(Some(&block), None);
-            }
-            // Not in a transition (the first screen, a change with nothing to
-            // animate): place it at once.
-            None => apply(),
         }
+    }
+    // The bar is not a direct sibling of the nav view: both sit in the
+    // component containers of the app's root view, so walk up until an
+    // ancestor holds one.
+    let mut bars: Vec<Retained<UIView>> = Vec::new();
+    let mut ancestor = Some(parent.clone());
+    for _ in 0..6 {
+        let Some(view) = ancestor else { break };
+        collect_tab_bars(&view, 4, &mut bars);
+        if !bars.is_empty() {
+            break;
+        }
+        ancestor = view.superview();
+    }
+    if bars.is_empty() {
+        return;
+    }
+    // The bar moves itself (`nshSetBottomHidden:`): its own layout sets the
+    // frame on every pass, so a transform set from here would be undone by
+    // the next one whenever a screen below it changes size.
+    let bars = Rc::new(bars);
+    let apply = Rc::new(move || {
+        for bar in bars.iter() {
+            // SAFETY: asking a view whether it is ours before messaging it.
+            let ours: bool =
+                unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
+            if ours {
+                let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
+            }
+        }
+    });
+    let apply = apply.clone();
+    match nav.transitionCoordinator() {
+        Some(coordinator) => {
+            let block = RcBlock::new(
+                move |_context: NonNull<
+                    ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>,
+                >| {
+                    apply();
+                },
+            );
+            coordinator.animateAlongsideTransition_completion(Some(&block), None);
+        }
+        // Not in a transition (the first screen, a change with nothing to
+        // animate): place it at once.
+        None => apply(),
+    }
 }
 
 /// One screen.
@@ -1038,9 +1051,7 @@ impl ScreenHost {
     /// screen's options arrive — before the push that shows it.
     pub(crate) fn set_hides_bottom_bar(&self, hides: bool) {
         // SAFETY: UIKit's property on the controller this screen wraps.
-        let _: () = unsafe {
-            msg_send![&*self.controller, setHidesBottomBarWhenPushed: hides]
-        };
+        let _: () = unsafe { msg_send![&*self.controller, setHidesBottomBarWhenPushed: hides] };
     }
 }
 
