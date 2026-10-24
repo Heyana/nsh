@@ -28,6 +28,9 @@ struct BarIvars {
     /// and draws nothing until the bar is laid out again.
     width: Cell<f64>,
     height: Cell<f64>,
+    /// `hidesBottomBarWhenPushed` put it off the bottom: the bar's own layout
+    /// sets its frame on every pass, which would drag it back into view.
+    bottom_hidden: Cell<bool>,
     context: ComponentContext,
 }
 
@@ -47,6 +50,26 @@ define_class!(
             show(self, &self.ivars().items.borrow(), self.ivars().selected.get());
         }
 
+        /// `hidesBottomBarWhenPushed` (called by the navigation stack inside
+        /// its transition): off the bottom, or back where the app put it.
+        #[unsafe(method(nshSetBottomHidden:))]
+        fn set_bottom_hidden(&self, hidden: bool) {
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/nsh-b.log") {
+                    let _ = writeln!(f, "set {hidden} window={} in_super={}", self.window().is_some(), self.superview().is_some());
+                }
+            }
+            self.ivars().bottom_hidden.set(hidden);
+            self.apply_bottom_hidden();
+            {
+                use std::io::Write;
+                if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open("/tmp/nsh-b.log") {
+                    let _ = writeln!(f, "  after t42={:.1}", self.layer().transform().m42);
+                }
+            }
+        }
+
         /// A bar makes its item views once it is in a window: the items set
         /// before that draw nothing.
         #[unsafe(method(didMoveToWindow))]
@@ -61,7 +84,13 @@ define_class!(
             // UIKit can give the bar its natural height before the host is
             // sized. Flexible-height autoresizing then adds the host's height
             // to that initial size; fill the host exactly instead.
-            if let Some(host) = self.superview() {
+            // Setting a frame while a transform is applied makes UIKit move the
+            // view somewhere else (frame and transform do not mix): while the
+            // navigation stack keeps the bar out of sight, its frame is already
+            // the host's, so leave it alone.
+            if !self.ivars().bottom_hidden.get()
+                && let Some(host) = self.superview()
+            {
                 let frame = host.bounds();
                 if self.frame() != frame {
                     self.setFrame(frame);
@@ -74,6 +103,7 @@ define_class!(
             if height != self.ivars().height.replace(height) {
                 self.ivars().context.set_size(0.0, height as f32);
             }
+            self.apply_bottom_hidden();
             if width < 1.0 || width == self.ivars().width.get() {
                 return;
             }
@@ -97,6 +127,29 @@ define_class!(
 );
 
 impl NshTabBar {
+    /// Puts the bar where its element is (`false`) or a screen below the
+    /// bottom of it (`true`), as a layer transform so the frame stays the
+    /// app's.
+    fn apply_bottom_hidden(&self) {
+        let hidden = self.ivars().bottom_hidden.get();
+        // Far enough to clear whatever inset the app left below the bar.
+        let offset = if hidden {
+            self.bounds().size.height + 200.0
+        } else {
+            0.0
+        };
+        let transform =
+            objc2_quartz_core::CATransform3D::new_translation(0.0, offset, 0.0);
+        self.layer().setTransform(transform);
+        // Back in place: the frame may have been left stale while hidden.
+        if !hidden
+            && let Some(host) = self.superview()
+            && self.frame() != host.bounds()
+        {
+            self.setFrame(host.bounds());
+        }
+    }
+
     fn new(
         mtm: MainThreadMarker,
         items: Rc<RefCell<Vec<Retained<UITabBarItem>>>>,
@@ -107,6 +160,7 @@ impl NshTabBar {
             selected: Cell::new(0),
             width: Cell::new(0.0),
             height: Cell::new(0.0),
+            bottom_hidden: Cell::new(false),
             context,
         });
         // SAFETY: `UITabBar`'s initializer is `UIView`'s `initWithFrame:`;
@@ -242,6 +296,11 @@ impl NativeComponent for SystemTabBar {
                 let items = value.and_then(JsonValue::as_array);
                 self.tabs = items.map(|items| parse_items(items)).unwrap_or_default();
                 self.rebuild();
+            }
+            ("hidden", value) => {
+                let hidden = value.and_then(JsonValue::as_bool).unwrap_or(false);
+                self.bar.ivars().bottom_hidden.set(hidden);
+                self.bar.apply_bottom_hidden();
             }
             ("selectedIndex", value) => {
                 // Removed (or not a whole number): the first tab, the default.
