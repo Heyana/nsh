@@ -5,7 +5,7 @@
 
 use crate::{
     JsonValue,
-    platform::{Os, TAB_BAR_COMPONENT},
+    platform::{Os, SWITCH_COMPONENT, TAB_BAR_COMPONENT},
     ui::{NativeEvent, native, prelude::*},
 };
 
@@ -86,6 +86,48 @@ pub fn TabBar(props: TabBarProps, cx: Scope<TabBarEvent>) -> impl IntoElement {
                 && let Some(index) = event.data.as_u64()
             {
                 cx.emit(TabBarEvent::Change(index as u32));
+            }
+        })
+        .into_element()
+}
+
+/// The props of [`Switch`].
+#[derive(Debug, Clone, PartialEq, Props)]
+pub struct SwitchProps {
+    /// On or off. The app owns it: a press reports the value the user chose
+    /// with `onChange`, and the switch shows the value the app passes back.
+    #[prop(default)]
+    pub checked: Prop<bool>,
+    /// No presses, and the system draws it dimmed (default false).
+    #[prop(default)]
+    pub disabled: Prop<bool>,
+}
+
+/// The events of [`Switch`].
+#[derive(Debug, Clone, PartialEq, Event)]
+pub enum SwitchEvent {
+    /// The user turned it on (`true`) or off.
+    #[args(on)]
+    Change(bool),
+}
+
+/// The system's on / off switch: `UISwitch` on iOS, the switch of the
+/// system's design on Android, each in the system's look and size, with its
+/// own animation. On the desktops and the web, which have none, it takes no
+/// room and shows nothing.
+#[component]
+pub fn Switch(props: SwitchProps, cx: Scope<SwitchEvent>) -> impl IntoElement {
+    if !matches!(os(), Os::Ios | Os::Android) {
+        return view().hidden().into_element();
+    }
+    native(SWITCH_COMPONENT)
+        .prop("checked", move || JsonValue::Bool(props.checked.get()))
+        .prop("disabled", move || JsonValue::Bool(props.disabled.get()))
+        .on_native_event(move |event: &NativeEvent| {
+            if &*event.name == "change"
+                && let Some(on) = event.data.as_bool()
+            {
+                cx.emit(SwitchEvent::Change(on));
             }
         })
         .into_element()

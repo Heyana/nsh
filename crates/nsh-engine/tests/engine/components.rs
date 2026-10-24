@@ -2853,3 +2853,132 @@ mount(() => <View>
                 && *value == Some(serde_json::json!(0))))
     })));
 }
+
+const SWITCH: &str = r##"import { mount, signal } from "nsh";
+import { Switch } from "nsh/mobile";
+
+const on = signal(false);
+
+function App() {
+  return (
+    <Switch
+      checked={on()}
+      onChange={(next: boolean) => on.set(next)}
+    />
+  );
+}
+
+mount(App);
+"##;
+
+fn is_switch(item: &MountItem) -> bool {
+    matches!(item, MountItem::Component { name, .. }
+        if &**name == nsh_core::platform::SWITCH_COMPONENT)
+}
+
+/// `nsh/mobile`'s `Switch` is the system's component on iOS and Android,
+/// given the value the app owns.
+#[test]
+fn the_switch_is_the_systems_component_on_ios_and_android() {
+    use nsh_core::platform::Os;
+
+    for os in [Os::Ios, Os::Android] {
+        let (_engine, rx) = start_in(
+            SWITCH,
+            Environment {
+                os,
+                ..Environment::default()
+            },
+        );
+        let batches = until(&rx, |batch| batch.items.iter().any(is_switch));
+        let props = batches
+            .iter()
+            .find_map(|batch| {
+                batch.items.iter().find_map(|i| match i {
+                    MountItem::ComponentProps { props, .. } => Some(props.clone()),
+                    _ => None,
+                })
+            })
+            .expect("its props reach it");
+        let value = |key: &str| {
+            props
+                .iter()
+                .find(|(name, _)| &**name == key)
+                .and_then(|(_, value)| value.clone())
+        };
+        assert_eq!(value("checked"), Some(serde_json::json!(false)), "{os:?}");
+        assert_eq!(value("disabled"), Some(serde_json::json!(false)), "{os:?}");
+    }
+}
+
+/// The user's choice reaches `onChange` as the new value, and the props the
+/// app sets reach the same switch.
+#[test]
+fn the_switch_reports_the_users_choice_and_follows_its_props() {
+    let app = r#"import { mount, signal, Text } from "nsh";
+import { Switch } from "nsh/mobile";
+
+const on = signal(false);
+
+mount(() => <>
+  <Switch checked={on()} disabled={on()} onChange={(next: boolean) => on.set(next)} />
+  <Text>{`On: ${on()}`}</Text>
+</>);
+"#;
+    let (engine, rx) = start(app);
+    let initial = until(&rx, |batch| shows(batch, "On: false"));
+    let switch = initial
+        .iter()
+        .flat_map(|batch| &batch.items)
+        .find_map(|item| match item {
+            MountItem::Component { id, .. } if is_switch(item) => Some(*id),
+            _ => None,
+        })
+        .expect("the system switch");
+    engine.control().dispatch_event(
+        switch,
+        EventKind::NativeEvent,
+        EventPayload::Native {
+            name: "change".into(),
+            data: serde_json::json!(true),
+        },
+    );
+    let updates = until(&rx, |batch| shows(batch, "On: true"));
+    assert!(updates.iter().any(|batch| shows(batch, "On: true")));
+    let props: Vec<_> = updates
+        .iter()
+        .flat_map(|batch| &batch.items)
+        .filter_map(|item| match item {
+            MountItem::ComponentProps { id, props } if *id == switch => Some(props),
+            _ => None,
+        })
+        .flatten()
+        .collect();
+    assert!(props.iter().any(|(name, value)| &**name == "checked"
+        && *value == Some(serde_json::json!(true))));
+    assert!(props.iter().any(|(name, value)| &**name == "disabled"
+        && *value == Some(serde_json::json!(true))));
+}
+
+/// Where the system has no switch it renders nothing: no component at all.
+#[test]
+fn the_switch_renders_nothing_on_the_desktops_and_the_web() {
+    use nsh_core::platform::Os;
+
+    for os in [Os::MacOs, Os::Linux, Os::Windows, Os::Web] {
+        let (_engine, rx) = start_in(
+            SWITCH,
+            Environment {
+                os,
+                ..Environment::default()
+            },
+        );
+        let batches = until(&rx, |batch| !batch.items.is_empty());
+        assert!(
+            !batches
+                .iter()
+                .any(|batch| batch.items.iter().any(is_switch)),
+            "no system switch on {os:?}, no component"
+        );
+    }
+}

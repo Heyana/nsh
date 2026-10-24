@@ -134,3 +134,59 @@ In Rust, `tab_bar()` makes one, with a setter per prop (`.items(..)`, `.selected
 - **Desktops (macOS, Windows, Linux, GPUI) and the web**: the sections show with [Tabs](../elements/tabs.md), in the app's
   look. `TabBar` takes no room there, so one layout holds both, picked by `platform.os`
   ([nsh/device](./nsh-device.md)).
+
+## Switch
+
+An on / off control: `UISwitch` on iOS and the framework's switch on Android, each in the system's look and size, with
+its own animation. The app owns the value: a press reports the value the user chose (`onChange`), and the switch shows
+the value the app passes back as `checked`. Where the system has none — the desktops and the web — it takes no room and
+shows nothing: draw one with `nsh/base`'s [Switch](../elements/switch.md) there, picked by `platform.os`.
+
+```rust tabs
+use nsh_core::{mobile::switch, ui::prelude::*};
+
+fn settings() -> impl IntoElement {
+    let on = signal(false);
+    switch()
+        .checked(on)
+        .on_change(move |next: &bool| on.set(*next))
+}
+```
+
+```tsx tabs
+import { mount, signal } from "nsh";
+import { Switch } from "nsh/mobile";
+
+function Settings() {
+  const on = signal(false);
+  return (
+    <Switch
+      checked={on()}
+      onChange={(next: boolean) => on.set(next)}
+    />
+  );
+}
+
+mount(Settings);
+```
+
+### Props
+
+| Prop | Rust | Type | Default | Description |
+|---|---|---|---|---|
+| `checked` | `.checked(..)` | `boolean` | `false` | On or off. The app owns it: a press reports the value the user chose, and the switch shows the value the app passes back. |
+| `disabled` | `.disabled(..)` | `boolean` | `false` | No presses, and the system draws it dimmed. |
+| `class`, `style` | style methods | `string`, `StyleProp<ViewStyle>` | none | Where it is; its look is the system's. |
+| `testID` | `.test_id(..)` | `string` | none | Finds it in tests and `nsh test --trace`. |
+
+### Events
+
+| Event | Rust | Description |
+|---|---|---|
+| `onChange` | `.on_change(\|on: &bool\| ..)` | The user turned it on (`true`) or off. The switch shows it at once; the app keeps the value and passes it back as `checked`. |
+
+### Platform notes
+
+- **iOS and Mac Catalyst**: `UISwitch`, with the system's appearance and its slide.
+- **Android**: the framework's switch, in the app theme's colors.
+- **Desktops and the web**: no system switch; the component takes no room. Draw one with `nsh/base`'s Switch there.
