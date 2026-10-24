@@ -192,6 +192,7 @@ final class Mounter {
         this.density = host.getResources().getDisplayMetrics().density;
         this.images = images;
         components.put(TabBarComponent.NAME, c -> new TabBarComponent(context, c, this::night));
+        components.put(SwitchComponent.NAME, c -> new SwitchComponent(context, c));
         images.redirects = (base, location) -> Native.mediaRedirect(handle(), base, location);
         images.inline = uri -> {
             long handle = handle();

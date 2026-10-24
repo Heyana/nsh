@@ -59,6 +59,7 @@ pub fn registries() -> &'static [Registry] {
         desktop.module::<desktop::Window>();
         let mut mobile = Registry::runtime("nsh/mobile");
         mobile.register::<crate::mobile::TabBar>();
+        mobile.register::<crate::mobile::Switch>();
         let mut os = Registry::runtime("os");
         os.module::<os::Os>();
         let mut process = Registry::runtime("process");

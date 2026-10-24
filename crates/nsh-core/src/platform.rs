@@ -11,6 +11,10 @@ use crate::geometry::{Edges, Points, Size};
 /// the same name).
 pub const TAB_BAR_COMPONENT: &str = "nsh/tab-bar";
 
+/// The native component of `nsh/mobile`'s `Switch`, which the iOS and
+/// Android backends register themselves.
+pub const SWITCH_COMPONENT: &str = "nsh/switch";
+
 /// Whether native component `name` is NSH's own: names under `nsh/` are, and
 /// an embedding app's registration of one is refused, so it can never
 /// replace what NSH's exports render.
