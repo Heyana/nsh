@@ -2559,7 +2559,16 @@ impl Mounter {
                     Some(Native::Screen(screen)) => Some(screen.config.animation),
                     _ => None,
                 });
-            stack.reconcile(&screens, leaving);
+            let hides_bottom_bar = screens
+                .last()
+                .and_then(|(id, ..)| match self.slot(*id).map(|s| &s.native) {
+                    Some(Native::Screen(screen)) => {
+                        Some(screen.config.hides_bottom_bar_when_pushed)
+                    }
+                    _ => None,
+                })
+                .unwrap_or(false);
+            stack.reconcile(&screens, leaving, hides_bottom_bar);
             if let Some(Slot {
                 native: Native::Stack(stack),
                 ..

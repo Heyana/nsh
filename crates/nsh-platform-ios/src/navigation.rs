@@ -11,7 +11,9 @@
 //! mounted (`popOnSwipe`, `popOnBack`, `closeOnSwipe`, `closeOnEscape`),
 //! never from JS.
 
-use std::cell::{Cell, RefCell};
+use std::{cell::{Cell, RefCell}, ptr::NonNull, rc::Rc};
+
+use block2::RcBlock;
 
 use nsh_core::{
     Color, EdgeInsets, EventKind, EventPayload, HeaderSystemItem, ModalAnimation, ModalConfig,
@@ -19,13 +21,13 @@ use nsh_core::{
 };
 use nsh_engine::EngineControl;
 use objc2::{
-    DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
+    ClassType, DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send,
     rc::Retained,
     runtime::{AnyClass, AnyObject, ProtocolObject},
 };
 use objc2_core_foundation::{CGFloat, CGSize};
 use objc2_foundation::{NSArray, NSObject, NSObjectProtocol, NSString};
-use objc2_quartz_core::{CAMediaTiming, CATransition};
+use objc2_quartz_core::{CAMediaTiming, CATransform3D, CATransition};
 use objc2_ui_kit::{
     NSForegroundColorAttributeName, UIAdaptivePresentationControllerDelegate, UIBarButtonItem,
     UIBarButtonSystemItem, UIBehavioralStyle, UIColor, UIEdgeInsets, UIGestureRecognizer,
@@ -33,6 +35,7 @@ use objc2_ui_kit::{
     UIModalTransitionStyle, UINavigationBar, UINavigationBarAppearance, UINavigationController,
     UINavigationControllerDelegate, UINavigationItem, UINavigationItemLargeTitleDisplayMode,
     UIPresentationController, UIResponder, UIView, UIViewAutoresizing, UIViewController,
+    UIViewControllerTransitionCoordinator, UIViewControllerTransitionCoordinatorContext,
 };
 
 use crate::{mount::SharedMounter, native_view::NshView};
@@ -752,6 +755,7 @@ impl StackHost {
         &self,
         screens: &[(NodeId, Retained<ScreenController>, ScreenAnimation)],
         leaving: Option<ScreenAnimation>,
+        hides_bottom_bar: bool,
     ) {
         let desired: Vec<Retained<UIViewController>> = screens
             .iter()
@@ -791,11 +795,87 @@ impl StackHost {
         self.nav.ivars().applying.set(true);
         self.nav.setViewControllers_animated(&array, animated);
         self.nav.ivars().applying.set(false);
+        // `hidesBottomBarWhenPushed`: the system tab bar leaves and comes back
+        // in the transition's own animation, as UIKit does with a
+        // `UITabBarController`'s bar (the app's bar is a plain `UITabBar`, so
+        // nothing moves it for us).
+        if animated {
+            self.slide_bottom_bar(hides_bottom_bar);
+        }
         // A stack whose size is settled is never laid out again for the
         // screens it is given, so nothing would size a screen UIKit left
         // empty until something unrelated (a rotation, a change of
         // appearance) forces a layout pass.
         size_screens(&self.nav);
+    }
+
+    /// Slides the app's system tab bars out (`hiding`) or back in, in the
+    /// running transition's animation: same duration, same curve, one step
+    /// with the page. Nothing is unmounted, so the bar is never rebuilt.
+    fn slide_bottom_bar(&self, hiding: bool) {
+        let Some(view) = self.nav.view() else {
+            return;
+        };
+        let Some(parent) = view.superview() else {
+            return;
+        };
+        // The bar is a component's view, nested in the container the component
+        // system puts it in: look through the siblings' subtrees for it.
+        fn collect_tab_bars(view: &UIView, depth: usize, out: &mut Vec<Retained<UIView>>) {
+            if depth == 0 {
+                return;
+            }
+            for sub in view.subviews().iter() {
+                // SAFETY: asking UIKit for the class of a subview.
+                let is_bar: bool = unsafe {
+                    msg_send![&*sub, isKindOfClass: objc2_ui_kit::UITabBar::class()]
+                };
+                if is_bar {
+                    out.push(sub.clone());
+                } else {
+                    collect_tab_bars(&sub, depth - 1, out);
+                }
+            }
+        }
+        // The bar is not a direct sibling of the nav view: both sit in the
+        // component containers of the app's root view, so walk up until an
+        // ancestor holds one.
+        let mut bars: Vec<Retained<UIView>> = Vec::new();
+        let mut ancestor = Some(parent.clone());
+        for _ in 0..6 {
+            let Some(view) = ancestor else { break };
+            collect_tab_bars(&view, 4, &mut bars);
+            if !bars.is_empty() {
+                break;
+            }
+            ancestor = view.superview();
+        }
+        if bars.is_empty() {
+            return;
+        }
+        // Far enough that the bar clears the bottom of the app's view, whatever
+        // inset the app left below it.
+        let offset = if hiding { parent.bounds().size.height } else { 0.0 };
+        let slide = Rc::new(move || {
+            let transform = CATransform3D::new_translation(0.0, offset, 0.0);
+            for bar in &bars {
+                bar.layer().setTransform(transform);
+            }
+        });
+        let slide = slide.clone();
+        match self.nav.transitionCoordinator() {
+            Some(coordinator) => {
+                let block = RcBlock::new(
+                    move |_context: NonNull<ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>>| {
+                        slide();
+                    },
+                );
+                coordinator.animateAlongsideTransition_completion(Some(&block), None);
+            }
+            // Not in a transition (an animated change with nothing to
+            // animate): place it at once.
+            None => slide(),
+        }
     }
 }
 
