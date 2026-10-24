@@ -30,7 +30,12 @@ struct BarIvars {
     height: Cell<f64>,
     /// `hidesBottomBarWhenPushed` put it off the bottom: the bar's own layout
     /// sets its frame on every pass, which would drag it back into view.
-    bottom_hidden: Cell<bool>,
+    /// The navigation stack keeps it out of sight (`hidesBottomBarWhenPushed`
+    /// on a page it shows).
+    nav_hidden: Cell<bool>,
+    /// The app keeps it out of sight (`TabBar.hidden`, switching tabs). A pop
+    /// must not undo it, and the app taking over clears the stack's say.
+    prop_hidden: Cell<bool>,
     context: ComponentContext,
 }
 
@@ -60,7 +65,7 @@ define_class!(
                     let _ = writeln!(f, "set {hidden} window={} in_super={}", self.window().is_some(), self.superview().is_some());
                 }
             }
-            self.ivars().bottom_hidden.set(hidden);
+            self.ivars().nav_hidden.set(hidden);
             self.apply_bottom_hidden();
             {
                 use std::io::Write;
@@ -88,7 +93,7 @@ define_class!(
             // view somewhere else (frame and transform do not mix): while the
             // navigation stack keeps the bar out of sight, its frame is already
             // the host's, so leave it alone.
-            if !self.ivars().bottom_hidden.get()
+            if !self.bottom_bar_hidden()
                 && let Some(host) = self.superview()
             {
                 let frame = host.bounds();
@@ -130,8 +135,14 @@ impl NshTabBar {
     /// Puts the bar where its element is (`false`) or a screen below the
     /// bottom of it (`true`), as a layer transform so the frame stays the
     /// app's.
+    /// Either of the two, as UIKit's bar is hidden while its tab bar
+    /// controller or the page showing says so.
+    fn bottom_bar_hidden(&self) -> bool {
+        self.ivars().nav_hidden.get() || self.ivars().prop_hidden.get()
+    }
+
     fn apply_bottom_hidden(&self) {
-        let hidden = self.ivars().bottom_hidden.get();
+        let hidden = self.bottom_bar_hidden();
         // Far enough to clear whatever inset the app left below the bar.
         let offset = if hidden {
             self.bounds().size.height + 200.0
@@ -169,7 +180,8 @@ impl NshTabBar {
             selected: Cell::new(0),
             width: Cell::new(0.0),
             height: Cell::new(0.0),
-            bottom_hidden: Cell::new(false),
+            nav_hidden: Cell::new(false),
+            prop_hidden: Cell::new(false),
             context,
         });
         // SAFETY: `UITabBar`'s initializer is `UIView`'s `initWithFrame:`;
@@ -308,7 +320,10 @@ impl NativeComponent for SystemTabBar {
             }
             ("hidden", value) => {
                 let hidden = value.and_then(JsonValue::as_bool).unwrap_or(false);
-                self.bar.ivars().bottom_hidden.set(hidden);
+                // The app speaking for the bar it shows: its word replaces the
+                // stack's, which belonged to the tab it was leaving.
+                self.bar.ivars().nav_hidden.set(false);
+                self.bar.ivars().prop_hidden.set(hidden);
                 self.bar.apply_bottom_hidden();
             }
             ("selectedIndex", value) => {

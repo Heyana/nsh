@@ -2564,6 +2564,9 @@ impl Mounter {
                     _ => None,
                 });
             stack.reconcile(&screens, leaving);
+            // A page whose options arrive while it is already on screen: the
+            // stack itself does not change, and the bar still has to follow.
+            stack.sync_bottom_bar();
             if let Some(Slot {
                 native: Native::Stack(stack),
                 ..

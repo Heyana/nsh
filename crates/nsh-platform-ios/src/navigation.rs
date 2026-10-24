@@ -832,6 +832,21 @@ impl StackHost {
         // appearance) forces a layout pass.
         size_screens(&self.nav);
     }
+
+    /// Puts the bar where this stack says it goes, if it is the stack on
+    /// screen and no transition is running: a page can turn
+    /// `hidesBottomBarWhenPushed` on while it is already shown, and nothing was
+    /// pushed or popped for `reconcile` to follow.
+    pub(crate) fn sync_bottom_bar(&self) {
+        let Some(view) = self.nav.view() else {
+            return;
+        };
+        if view.window().is_none() || view.isHidden() || self.nav.transitionCoordinator().is_some()
+        {
+            return;
+        }
+        slide_bottom_bar(&self.nav, bottom_bar_hidden(&self.nav));
+    }
 }
 
 /// Whether the bar belongs off screen: UIKit's own rule for
