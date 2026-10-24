@@ -152,12 +152,18 @@ expect Mobile: true
 # The system's bar, in the frame the app's style gives it; the app owns
 # which tab is selected and follows the user's choice (`onChange`).
 expect Tab: 0
+# The system's switch: the app owns the value; a press (the platform's, and
+# the app setting it) travels through `onChange` / `checked`.
+expect Switch: false
+tap id:switch-on
+expect Switch: true
 frame id:tab-bar 0 784 390 60
 tap id:tab-next
 expect Tab: 1
 tap id:tab-rename
 frame id:tab-bar 0 784 390 60
 covers [nsh/mobile] isAvailable
+covers [nsh/mobile] Switch
 covers [nsh/mobile] TabBar
 # mod-storage
 tap id:case-mod-storage

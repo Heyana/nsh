@@ -6,10 +6,11 @@
 // the frame the app's style gives it, as a native view does; its script
 // checks the frame and the app's side of the selection.
 import { Text, View, signal } from "nsh";
-import { TabBar, isAvailable } from "nsh/mobile";
+import { Switch, TabBar, isAvailable } from "nsh/mobile";
 
 function App() {
   const selected = signal(0);
+  const on = signal(false);
   const items = signal([
     { title: "Records", icon: "list.bullet" },
     { title: "Stats", icon: "chart.bar" },
@@ -18,6 +19,13 @@ function App() {
     <View style={{ flex: 1, paddingTop: 20 }}>
       <Text>{`Mobile: ${isAvailable}`}</Text>
       <Text>{`Tab: ${selected()}`}</Text>
+      <Text>{`Switch: ${on()}`}</Text>
+      <Text testID="switch-on" onPress={() => on.set(true)}>Turn on</Text>
+      <Switch
+        testID="switch"
+        checked={on()}
+        onChange={(next) => on.set(next)}
+      />
       <Text testID="tab-next" onPress={() => selected.set(1)}>Next tab</Text>
       <Text testID="tab-rename" onPress={() => items.set([{ title: "Records", icon: "list.bullet" }, { title: "Statistics", icon: "chart.bar" }])}>
         Rename
