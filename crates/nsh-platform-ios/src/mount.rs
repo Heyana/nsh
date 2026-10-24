@@ -908,7 +908,16 @@ impl Mounter {
                     },
                 ) = self.slot(id)
                 {
-                    let size = CGSize::new(size.width.0 as CGFloat, size.height.0 as CGFloat);
+                    let mut size = CGSize::new(size.width.0 as CGFloat, size.height.0 as CGFloat);
+                    // A vertical scroll view's content is laid out at the scroll
+                    // view's width — the module's own contract. A content size
+                    // that says otherwise (a wide row left behind by an earlier
+                    // pass) lets the page be dragged sideways over a page that
+                    // has nothing to the side.
+                    let viewport = scroll.bounds().size.width;
+                    if !s.horizontal && viewport > 0.0 {
+                        size = CGSize::new(viewport, size.height);
+                    }
                     match s.zoom_view() {
                         Some(zoom) => crate::zoom::layout(scroll, &zoom, size, s.centers()),
                         None => scroll.setContentSize(size),
