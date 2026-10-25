@@ -62,14 +62,16 @@ define_class!(
         /// its transition): off the bottom, or back where the app put it.
         #[unsafe(method(nshSetBottomHidden:))]
         fn set_bottom_hidden(&self, hidden: bool) {
-            // The stack on screen saying "shown" settles it: the app's word was
-            // about the tab it left, and holding it would keep the bar down
-            // until JS catches up — it would then snap in, not slide.
-            if !hidden {
-                self.ivars().prop_hidden.set(false);
-            }
-            self.ivars().nav_hidden.set(hidden);
-            self.apply_bottom_hidden();
+            self.put_bottom_hidden(hidden, true);
+        }
+
+        /// The same, for a stack that did not move: a page turned
+        /// `hidesBottomBarWhenPushed` on while it is shown, or anything else
+        /// that re-reads the stack's options. Only the stack's own reason
+        /// moves here — a title update must not undo the app's `hidden`.
+        #[unsafe(method(nshSyncBottomHidden:))]
+        fn sync_bottom_hidden(&self, hidden: bool) {
+            self.put_bottom_hidden(hidden, false);
         }
 
         /// A bar makes its item views once it is in a window: the items set
@@ -136,6 +138,18 @@ impl NshTabBar {
     /// app's.
     /// Either of the two, as UIKit's bar is hidden while its tab bar
     /// controller or the page showing says so.
+    /// Records the stack's word. `from_transition` is a push or a pop — the
+    /// stack on screen saying "shown" then settles both reasons: the app's
+    /// word was about the page it left, and holding it would keep the bar down
+    /// until JS catches up (it would then snap in, not slide).
+    fn put_bottom_hidden(&self, hidden: bool, from_transition: bool) {
+        let (nav, prop) =
+            hidden_after_stack_word(hidden, from_transition, self.ivars().prop_hidden.get());
+        self.ivars().prop_hidden.set(prop);
+        self.ivars().nav_hidden.set(nav);
+        self.apply_bottom_hidden();
+    }
+
     fn bottom_bar_hidden(&self) -> bool {
         self.ivars().nav_hidden.get() || self.ivars().prop_hidden.get()
     }
@@ -191,6 +205,13 @@ impl NshTabBar {
         let frame = CGRect::new(CGPoint::new(0.0, 0.0), CGSize::new(0.0, 0.0));
         unsafe { msg_send![super(this), initWithFrame: frame] }
     }
+}
+
+/// The two hiding reasons after the stack's word arrives: the stack's own, and
+/// the app's `hidden`. A transition settles both; a config-only sync leaves the
+/// app's alone.
+fn hidden_after_stack_word(hiding: bool, from_transition: bool, prop_hidden: bool) -> (bool, bool) {
+    (hiding, prop_hidden && !(from_transition && !hiding))
 }
 
 /// One tab as the app gave it (`TabBarItem`: `{ title, icon }`).
@@ -364,7 +385,7 @@ pub(crate) fn factory() -> ComponentFactory {
 mod tests {
     use serde_json::json;
 
-    use super::{Tab, parse_items};
+    use super::{Tab, hidden_after_stack_word, parse_items};
 
     /// Each tab carries its own title and icon; a tab without an icon has
     /// none.
@@ -387,5 +408,26 @@ mod tests {
                 },
             ]
         );
+    }
+
+    /// A config-only sync must not undo the app's `hidden`: a title update on
+    /// an already mounted page re-reads the stack's options, and the bar has to
+    /// stay where the app put it.
+    #[test]
+    fn a_config_sync_keeps_the_apps_hidden() {
+        assert_eq!(hidden_after_stack_word(false, false, true), (false, true));
+    }
+
+    /// A push or a pop settles both: the app's word was about the page it left.
+    #[test]
+    fn a_transition_settles_the_apps_hidden() {
+        assert_eq!(hidden_after_stack_word(false, true, true), (false, false));
+    }
+
+    /// Either reason keeps the bar off the bottom.
+    #[test]
+    fn the_stacks_word_hides_the_bar() {
+        assert_eq!(hidden_after_stack_word(true, true, false), (true, false));
+        assert_eq!(hidden_after_stack_word(true, false, false), (true, false));
     }
 }

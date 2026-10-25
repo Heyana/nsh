@@ -613,7 +613,7 @@ define_class!(
             // UIKit's own hook for this: it runs for pushes and pops, before
             // the transition starts, with a live `transitionCoordinator` — the
             // place a `UITabBarController` moves its bar from.
-            slide_bottom_bar(nav, bottom_bar_hidden(nav));
+            slide_bottom_bar(nav, bottom_bar_hidden(nav), true);
             // A swipe back that the user cancels ends without `didShow`, so the
             // bar has to be put back where the stack now says it belongs once
             // the interaction ends (a completed one lands on the same value).
@@ -628,7 +628,7 @@ define_class!(
                     move |_context: NonNull<
                         ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>,
                     >| {
-                        slide_bottom_bar(&nav, bottom_bar_hidden(&nav));
+                        slide_bottom_bar(&nav, bottom_bar_hidden(&nav), true);
                     },
                 );
                 coordinator.notifyWhenInteractionChangesUsingBlock(&block);
@@ -661,7 +661,7 @@ define_class!(
             defer_to_back_swipe(nav);
             // Safety net: whatever the transition did, the bar ends where the
             // stack says it goes.
-            slide_bottom_bar(nav, bottom_bar_hidden(nav));
+            slide_bottom_bar(nav, bottom_bar_hidden(nav), true);
             let stack = self.ivars().stack;
             self.with_mounter(|m| m.stack_did_show(stack));
             // UIKit installs its own pop delegate while loading the navigation
@@ -917,7 +917,7 @@ impl StackHost {
         {
             return;
         }
-        slide_bottom_bar(&self.nav, bottom_bar_hidden(&self.nav));
+        slide_bottom_bar(&self.nav, bottom_bar_hidden(&self.nav), false);
     }
 }
 
@@ -940,8 +940,10 @@ pub(crate) fn bottom_bar_hidden(nav: &UINavigationController) -> bool {
 ///
 /// Called from `navigationController:willShowViewController:animated:` — the
 /// hook UIKit runs for both pushes and pops, before the transition starts —
-/// which is where a `UITabBarController` moves its own bar from.
-pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool) {
+/// which is where a `UITabBarController` moves its own bar from — and from
+/// `sync_bottom_bar` for a stack that did not move. Only the former settles
+/// the app's own `hidden` with the stack's word.
+pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool, from_transition: bool) {
     let Some(view) = nav.view() else {
         return;
     };
@@ -987,11 +989,21 @@ pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool) {
     let bars = Rc::new(bars);
     let apply = Rc::new(move || {
         for bar in bars.iter() {
+            // A push or a pop settles the app's `hidden` with the stack's; a
+            // sync that only re-read the options does not.
             // SAFETY: asking a view whether it is ours before messaging it.
-            let ours: bool =
-                unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
-            if ours {
-                let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
+            if from_transition {
+                let ours: bool =
+                    unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
+                if ours {
+                    let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
+                }
+            } else {
+                let ours: bool =
+                    unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSyncBottomHidden:)] };
+                if ours {
+                    let _: () = unsafe { msg_send![&**bar, nshSyncBottomHidden: hiding] };
+                }
             }
         }
     });
