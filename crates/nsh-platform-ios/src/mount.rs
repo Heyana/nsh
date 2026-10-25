@@ -181,6 +181,18 @@ fn mirror_native(native: &Native, rtl: bool) {
 /// edge, in `root`'s space: what a scroll view's content legitimately
 /// reaches sideways. A scroll view inside scrolls on its own, so what it
 /// holds does not count. Stops at the first view that reaches.
+/// The content width a vertical scroll view keeps. `reaches` says whether
+/// anything inside it is wider than `viewport`; the caller asks that once the
+/// batch has applied every frame, so a child that only just arrived counts —
+/// a first mount sends the content size before its children's frames.
+fn settled_content_width(viewport: CGFloat, content: CGFloat, reaches: bool) -> CGFloat {
+    if viewport > 0.0 && content > viewport && !reaches {
+        viewport
+    } else {
+        content
+    }
+}
+
 fn reaches_beyond(root: &UIView, limit: CGFloat) -> bool {
     let mut pending: Vec<Retained<UIView>> = root.subviews().iter().collect();
     while let Some(view) = pending.pop() {
@@ -519,8 +531,10 @@ impl Mounter {
             };
             let viewport = scroll.bounds().size.width;
             let content = scroll.contentSize().width;
-            if viewport > 0.0 && content > viewport && !reaches_beyond(scroll, viewport + 0.5) {
-                scroll.setContentSize(CGSize::new(viewport, height));
+            let width =
+                settled_content_width(viewport, content, reaches_beyond(scroll, viewport + 0.5));
+            if width != content {
+                scroll.setContentSize(CGSize::new(width, height));
             }
         }
     }
@@ -3700,4 +3714,29 @@ fn disappear(
         Some(&done),
         mtm,
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A first mount's children arrive after the content size does; judged
+    /// once they are in place, a row wider than the viewport keeps its width.
+    #[test]
+    fn a_row_wider_than_the_viewport_keeps_its_width() {
+        assert_eq!(settled_content_width(320.0, 400.0, true), 400.0);
+    }
+
+    /// A width left behind by an earlier layout, with nothing inside reaching
+    /// it, narrows to the viewport: the page would pan over nothing.
+    #[test]
+    fn a_stale_extent_narrows_to_the_viewport() {
+        assert_eq!(settled_content_width(320.0, 500.0, false), 320.0);
+    }
+
+    /// Content that fits is left alone.
+    #[test]
+    fn content_within_the_viewport_is_left_alone() {
+        assert_eq!(settled_content_width(320.0, 100.0, false), 100.0);
+    }
 }
