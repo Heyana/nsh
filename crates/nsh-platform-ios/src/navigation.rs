@@ -389,6 +389,29 @@ pub(crate) struct NavIvars {
     applying: Cell<bool>,
 }
 
+/// A drag that starts at the screen's edge belongs to the stack: the top
+/// screen's scroll views wait for the back gesture to fail before they pan,
+/// so a swipe at the edge goes back instead of scrolling the page. The
+/// gesture fails at once for a drag that is not at the edge. Scroll views
+/// mounted after the screen's last stack change get it with the next one.
+fn defer_to_back_swipe(nav: &UINavigationController) {
+    let Some(pop) = nav.interactivePopGestureRecognizer() else {
+        return;
+    };
+    let Some(view) = nav.topViewController().and_then(|c| c.view()) else {
+        return;
+    };
+    let mut pending = vec![view];
+    while let Some(view) = pending.pop() {
+        if let Some(scroll) = view.downcast_ref::<UIScrollView>() {
+            scroll
+                .panGestureRecognizer()
+                .requireGestureRecognizerToFail(&pop);
+        }
+        pending.extend(view.subviews().iter());
+    }
+}
+
 /// Gives every screen whose view UIKit left empty its parent's bounds.
 ///
 /// UIKit sizes a pushed controller's view from the navigation view, which
@@ -584,24 +607,7 @@ define_class!(
             // hierarchy after `reconcile` has sized what was there: the one
             // it brought in is only reachable here.
             size_screens(nav);
-            // A drag that starts at the screen's edge belongs to the stack: the
-            // page's scroll view waits for the back gesture to fail before it
-            // pans, so a swipe at the edge goes back instead of scrolling the
-            // page sideways.
-            if let Some(pop) = nav.interactivePopGestureRecognizer()
-                && let Some(view) = nav.topViewController().and_then(|c| c.view())
-            {
-                let mut pending = vec![view];
-                while let Some(view) = pending.pop() {
-                    if let Some(scroll) = view.downcast_ref::<UIScrollView>() {
-                        let pan = scroll.panGestureRecognizer();
-                        pan.requireGestureRecognizerToFail(&pop);
-                    }
-                    for sub in view.subviews().iter() {
-                        pending.push(sub.clone());
-                    }
-                }
-            }
+            defer_to_back_swipe(nav);
             let stack = self.ivars().stack;
             self.with_mounter(|m| m.stack_did_show(stack));
             // UIKit installs its own pop delegate while loading the navigation
@@ -815,6 +821,7 @@ impl StackHost {
         // empty until something unrelated (a rotation, a change of
         // appearance) forces a layout pass.
         size_screens(&self.nav);
+        defer_to_back_swipe(&self.nav);
     }
 }
 
