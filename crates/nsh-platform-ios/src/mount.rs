@@ -4039,4 +4039,32 @@ mod tests {
     fn content_within_the_viewport_is_left_alone() {
         assert_eq!(settled_content_width(320.0, 100.0, false), 100.0);
     }
+
+    /// The judgement reads the children's frames, so it only means anything
+    /// after they are in place: the same scroll view keeps a 400pt row it was
+    /// sent a size for before the row existed, and narrows a 500pt size over
+    /// children that fit.
+    #[test]
+    fn the_judgement_reads_the_frames_that_are_in_place() {
+        // No window is involved: frames and a content size only.
+        let mtm = unsafe { MainThreadMarker::new_unchecked() };
+        let scroll = UIScrollView::new(mtm);
+        scroll.setFrame(CGRect::new(CGPoint::ZERO, CGSize::new(320.0, 200.0)));
+        let row = UIView::new(mtm);
+        scroll.addSubview(&row);
+
+        // The content size arrived before the row's frame did.
+        row.setFrame(CGRect::new(CGPoint::ZERO, CGSize::new(400.0, 50.0)));
+        assert_eq!(
+            settled_content_width(320.0, 400.0, reaches_beyond(&scroll, 320.5)),
+            400.0
+        );
+
+        // A wider size over a row that fits: narrowed to the viewport.
+        row.setFrame(CGRect::new(CGPoint::ZERO, CGSize::new(300.0, 50.0)));
+        assert_eq!(
+            settled_content_width(320.0, 500.0, reaches_beyond(&scroll, 320.5)),
+            320.0
+        );
+    }
 }
