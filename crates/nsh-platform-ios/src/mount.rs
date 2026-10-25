@@ -189,18 +189,6 @@ fn mirror_native(native: &Native, rtl: bool) {
 /// edge, in `root`'s space: what a scroll view's content legitimately
 /// reaches sideways. A scroll view inside scrolls on its own, so what it
 /// holds does not count. Stops at the first view that reaches.
-/// The content width a vertical scroll view keeps. `reaches` says whether
-/// anything inside it is wider than `viewport`; the caller asks that once the
-/// batch has applied every frame, so a child that only just arrived counts —
-/// a first mount sends the content size before its children's frames.
-fn settled_content_width(viewport: CGFloat, content: CGFloat, reaches: bool) -> CGFloat {
-    if viewport > 0.0 && content > viewport && !reaches {
-        viewport
-    } else {
-        content
-    }
-}
-
 fn reaches_beyond(root: &UIView, limit: CGFloat) -> bool {
     let mut pending: Vec<Retained<UIView>> = root.subviews().iter().collect();
     while let Some(view) = pending.pop() {
@@ -213,6 +201,26 @@ fn reaches_beyond(root: &UIView, limit: CGFloat) -> bool {
         }
     }
     false
+}
+
+/// The content width a vertical scroll view keeps. `reaches` says whether
+/// anything inside it is wider than `viewport`; the caller asks that once the
+/// batch has applied every frame, so a child that only just arrived counts —
+/// a first mount sends the content size before its children's frames.
+fn settled_content_width(viewport: CGFloat, content: CGFloat, reaches: bool) -> CGFloat {
+    if viewport > 0.0 && content > viewport && !reaches {
+        viewport
+    } else {
+        content
+    }
+}
+
+/// The width a narrowed scroll view keeps. Its content was narrowed to the
+/// viewport; the core's width comes back once something inside reaches past
+/// the viewport again — a later batch widened a row, and the core sends no
+/// new content size for it.
+fn narrowed_width(viewport: CGFloat, core: CGFloat, reaches: bool) -> CGFloat {
+    if reaches { core } else { viewport }
 }
 
 /// The innermost visible subview of `view` at `point` (in `view`),
@@ -542,6 +550,14 @@ pub(crate) struct Mounter {
     /// queued when the scroll view is, its children after it), so a size that
     /// looks too wide is only judged after the whole batch is in place.
     content_sizes: Vec<(NodeId, CGFloat)>,
+    /// The core's width and height for every vertical scroll view the platform
+    /// narrowed, by id. The core does not resend a content size it did not
+    /// change, so a later batch that widens what such a scroll view holds has
+    /// to give that width back from here.
+    narrowed: Vec<(NodeId, CGFloat, CGFloat)>,
+    /// Whether this batch moved any frame: nothing under a narrowed scroll
+    /// view can have grown otherwise, so the judgement is skipped.
+    frames_applied: bool,
     /// The surface lays out right to left: native controls mirror.
     rtl: bool,
     /// Sticky cells of lists, by list.
@@ -618,6 +634,8 @@ impl Mounter {
             touch_listeners: 0,
             blocked_scrolls: Vec::new(),
             content_sizes: Vec::new(),
+            narrowed: Vec::new(),
+            frames_applied: false,
             rtl: false,
             components,
             areas: Vec::new(),
@@ -671,20 +689,66 @@ impl Mounter {
     /// size before its children exist, and asking then would narrow a row
     /// that really is wider than the viewport.
     fn settle_content_sizes(&mut self) {
+        let frames_applied = std::mem::take(&mut self.frames_applied);
         for (id, height) in std::mem::take(&mut self.content_sizes) {
-            let Some(Slot {
+            let mut narrowed = None;
+            if let Some(Slot {
                 native: Native::Scroll(scroll),
                 ..
             }) = self.slot(id)
-            else {
-                continue;
-            };
-            let viewport = scroll.bounds().size.width;
-            let content = scroll.contentSize().width;
-            let width =
-                settled_content_width(viewport, content, reaches_beyond(scroll, viewport + 0.5));
-            if width != content {
-                scroll.setContentSize(CGSize::new(width, height));
+            {
+                let viewport = scroll.bounds().size.width;
+                let content = scroll.contentSize().width;
+                // Content that fits cannot be narrowed; walking the subtree
+                // to learn that would cost the page on every batch.
+                if viewport > 0.0 && content > viewport {
+                    let width = settled_content_width(
+                        viewport,
+                        content,
+                        reaches_beyond(scroll, viewport + 0.5),
+                    );
+                    if width != content {
+                        scroll.setContentSize(CGSize::new(width, height));
+                        narrowed = Some((content, height));
+                    }
+                }
+            }
+            self.narrowed.retain(|&(n, ..)| n != id);
+            if let Some((width, height)) = narrowed {
+                self.narrowed.push((id, width, height));
+            }
+        }
+        if frames_applied {
+            self.rejudge_narrowed();
+        }
+    }
+
+    /// Gives back the width the core sent once a later batch widens what a
+    /// narrowed scroll view holds. The core does not resend a content size it
+    /// did not change, so without this the tail stays out of reach — the bug
+    /// this judgement fixes, in the other order.
+    fn rejudge_narrowed(&mut self) {
+        let mut i = 0;
+        while i < self.narrowed.len() {
+            let (id, core, height) = self.narrowed[i];
+            let mut done = true;
+            if let Some(Slot {
+                native: Native::Scroll(scroll),
+                ..
+            }) = self.slot(id)
+            {
+                let viewport = scroll.bounds().size.width;
+                let reaches = reaches_beyond(scroll, viewport + 0.5);
+                let width = narrowed_width(viewport, core, reaches);
+                if width != scroll.contentSize().width {
+                    scroll.setContentSize(CGSize::new(width, height));
+                }
+                done = width == core;
+            }
+            if done {
+                self.narrowed.swap_remove(i);
+            } else {
+                i += 1;
             }
         }
     }
@@ -930,6 +994,7 @@ impl Mounter {
                 }
             }
             MountItem::Frame { id, frame } => {
+                self.frames_applied = true;
                 if let Some(Slot {
                     native: Native::HeaderItem(view),
                     ..
@@ -4034,6 +4099,15 @@ mod tests {
         assert_eq!(settled_content_width(320.0, 500.0, false), 320.0);
     }
 
+    /// A narrowed scroll view keeps the viewport while nothing reaches it, and
+    /// takes the core's width back once a later batch widens a row. The core
+    /// sends no new size for that batch, so the judgement is made again here.
+    #[test]
+    fn a_narrowed_view_takes_the_core_width_back_once_a_row_grows() {
+        assert_eq!(narrowed_width(320.0, 500.0, false), 320.0);
+        assert_eq!(narrowed_width(320.0, 500.0, true), 500.0);
+    }
+
     /// Content that fits is left alone.
     #[test]
     fn content_within_the_viewport_is_left_alone() {
@@ -4046,8 +4120,13 @@ mod tests {
     /// children that fit.
     #[test]
     fn the_judgement_reads_the_frames_that_are_in_place() {
-        // No window is involved: frames and a content size only.
-        let mtm = unsafe { MainThreadMarker::new_unchecked() };
+        // No window is involved: frames and a content size only. UIKit still
+        // wants the main thread, so this skips where the test thread is not
+        // it (a plain `cargo test`) and runs under `nsh test`.
+        let Some(mtm) = MainThreadMarker::new() else {
+            eprintln!("skipped: UIKit views need the main thread");
+            return;
+        };
         let scroll = UIScrollView::new(mtm);
         scroll.setFrame(CGRect::new(CGPoint::ZERO, CGSize::new(320.0, 200.0)));
         let row = UIView::new(mtm);
