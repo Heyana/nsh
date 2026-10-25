@@ -223,6 +223,15 @@ fn narrowed_width(viewport: CGFloat, core: CGFloat, reaches: bool) -> CGFloat {
     if reaches { core } else { viewport }
 }
 
+/// Whether the width judgement applies to a scroll view at all: one that
+/// scrolls vertically and is not zoomed. A node switched to horizontal (or
+/// given a zoom view) holds something the vertical extent never described,
+/// so the width narrowed while it was vertical is stale — restoring it would
+/// cut the content short.
+fn still_judged(horizontal: bool, zoomable: bool) -> bool {
+    !horizontal && !zoomable
+}
+
 /// The innermost visible subview of `view` at `point` (in `view`),
 /// interaction enabled or not, honoring `pointerEvents`.
 fn innermost(view: &UIView, point: CGPoint) -> Retained<UIView> {
@@ -732,10 +741,9 @@ impl Mounter {
         while i < self.narrowed.len() {
             let (id, core, height) = self.narrowed[i];
             let mut done = true;
-            if let Some(Slot {
-                native: Native::Scroll(scroll),
-                ..
-            }) = self.slot(id)
+            if let Some(slot) = self.slot(id)
+                && let Native::Scroll(scroll) = &slot.native
+                && still_judged(slot.horizontal, slot.zoom_view().is_some())
             {
                 let viewport = scroll.bounds().size.width;
                 let reaches = reaches_beyond(scroll, viewport + 0.5);
@@ -1143,6 +1151,14 @@ impl Mounter {
                 keyboard_dismiss,
                 mirrored,
             } => {
+                // A node that stops being vertical drops the width narrowed
+                // while it was: the extent it holds is measured the other way.
+                let vertical = self
+                    .slot(id)
+                    .is_some_and(|s| still_judged(horizontal, s.zoom_view().is_some()));
+                if !vertical {
+                    self.narrowed.retain(|&(n, ..)| n != id);
+                }
                 if let Some(s) = self.slot_mut(id)
                     && s.mirrored != mirrored
                 {
@@ -1189,7 +1205,7 @@ impl Mounter {
                 ) = self.slot(id)
                 {
                     let size = CGSize::new(size.width.0 as CGFloat, size.height.0 as CGFloat);
-                    let vertical = !s.horizontal && s.zoom_view().is_none();
+                    let vertical = still_judged(s.horizontal, s.zoom_view().is_some());
                     match s.zoom_view() {
                         Some(zoom) => crate::zoom::layout(scroll, &zoom, size, s.centers()),
                         None => scroll.setContentSize(size),
@@ -4106,6 +4122,17 @@ mod tests {
     fn a_narrowed_view_takes_the_core_width_back_once_a_row_grows() {
         assert_eq!(narrowed_width(320.0, 500.0, false), 320.0);
         assert_eq!(narrowed_width(320.0, 500.0, true), 500.0);
+    }
+
+    /// A node switched to horizontal (or given a zoom view) is no longer
+    /// judged: the width narrowed while it was vertical describes nothing it
+    /// holds now, and giving 500 back to 600 points of horizontal content
+    /// would leave the last 100 unreachable.
+    #[test]
+    fn a_scroll_view_that_stops_being_vertical_is_not_judged() {
+        assert!(still_judged(false, false));
+        assert!(!still_judged(true, false));
+        assert!(!still_judged(false, true));
     }
 
     /// Content that fits is left alone.
