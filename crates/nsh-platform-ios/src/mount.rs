@@ -397,6 +397,12 @@ pub(crate) struct Mounter {
     touch_listeners: usize,
     /// Scroll views a JS responder keeps from scrolling.
     blocked_scrolls: Vec<Retained<UIScrollView>>,
+    /// Vertical scroll views whose content size arrived in this batch, with
+    /// the height that came with it. A batch applies a scroll view's content
+    /// size before the frames of the children it measures (`ScrollContent` is
+    /// queued when the scroll view is, its children after it), so a size that
+    /// looks too wide is only judged after the whole batch is in place.
+    content_sizes: Vec<(NodeId, CGFloat)>,
     /// The surface lays out right to left: native controls mirror.
     rtl: bool,
     /// Sticky cells of lists, by list.
@@ -466,6 +472,7 @@ impl Mounter {
             touch_trackers: Vec::new(),
             touch_listeners: 0,
             blocked_scrolls: Vec::new(),
+            content_sizes: Vec::new(),
             rtl: false,
             components,
             areas: Vec::new(),
@@ -492,6 +499,30 @@ impl Mounter {
             area.batch_applied();
         }
         self.focused_caret_moved();
+        self.settle_content_sizes();
+    }
+
+    /// Narrows the content size of a vertical scroll view to its width when
+    /// nothing inside reaches past it — a stale extent left by an earlier
+    /// layout makes the page pan sideways over nothing. Judged here, after
+    /// the batch put every child's frame in place: a first mount sends the
+    /// size before its children exist, and asking then would narrow a row
+    /// that really is wider than the viewport.
+    fn settle_content_sizes(&mut self) {
+        for (id, height) in std::mem::take(&mut self.content_sizes) {
+            let Some(Slot {
+                native: Native::Scroll(scroll),
+                ..
+            }) = self.slot(id)
+            else {
+                continue;
+            };
+            let viewport = scroll.bounds().size.width;
+            let content = scroll.contentSize().width;
+            if viewport > 0.0 && content > viewport && !reaches_beyond(scroll, viewport + 0.5) {
+                scroll.setContentSize(CGSize::new(viewport, height));
+            }
+        }
     }
 
     /// Reports the focused input's caret if the batch moved it (the input
@@ -926,25 +957,14 @@ impl Mounter {
                     },
                 ) = self.slot(id)
                 {
-                    let mut size = CGSize::new(size.width.0 as CGFloat, size.height.0 as CGFloat);
-                    // A vertical scroll view's content is laid out at the scroll
-                    // view's width (the module's contract). A content size wider
-                    // than that, with nothing inside reaching it, is a stale
-                    // extent from an earlier pass: the page would pan sideways
-                    // over nothing. What does reach it (an absolutely placed
-                    // row) keeps the size.
-                    let viewport = scroll.bounds().size.width;
-                    if !s.horizontal
-                        && s.zoom_view().is_none()
-                        && viewport > 0.0
-                        && size.width > viewport
-                        && !reaches_beyond(scroll, viewport + 0.5)
-                    {
-                        size = CGSize::new(viewport, size.height);
-                    }
+                    let size = CGSize::new(size.width.0 as CGFloat, size.height.0 as CGFloat);
+                    let vertical = !s.horizontal && s.zoom_view().is_none();
                     match s.zoom_view() {
                         Some(zoom) => crate::zoom::layout(scroll, &zoom, size, s.centers()),
                         None => scroll.setContentSize(size),
+                    }
+                    if vertical {
+                        self.content_sizes.push((id, size.height));
                     }
                 }
             }
