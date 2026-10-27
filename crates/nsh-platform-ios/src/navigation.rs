@@ -613,7 +613,7 @@ define_class!(
             // UIKit's own hook for this: it runs for pushes and pops, before
             // the transition starts, with a live `transitionCoordinator` — the
             // place a `UITabBarController` moves its bar from.
-            slide_bottom_bar(nav, bottom_bar_hidden(nav), true);
+            slide_bottom_bar(nav, bottom_bar_hidden(nav));
             // A swipe back that the user cancels ends without `didShow`, so the
             // bar has to be put back where the stack now says it belongs once
             // the interaction ends (a completed one lands on the same value).
@@ -628,7 +628,7 @@ define_class!(
                     move |_context: NonNull<
                         ProtocolObject<dyn UIViewControllerTransitionCoordinatorContext>,
                     >| {
-                        slide_bottom_bar(&nav, bottom_bar_hidden(&nav), true);
+                        slide_bottom_bar(&nav, bottom_bar_hidden(&nav));
                     },
                 );
                 coordinator.notifyWhenInteractionChangesUsingBlock(&block);
@@ -661,7 +661,7 @@ define_class!(
             defer_to_back_swipe(nav);
             // Safety net: whatever the transition did, the bar ends where the
             // stack says it goes.
-            slide_bottom_bar(nav, bottom_bar_hidden(nav), true);
+            slide_bottom_bar(nav, bottom_bar_hidden(nav));
             let stack = self.ivars().stack;
             self.with_mounter(|m| m.stack_did_show(stack));
             // UIKit installs its own pop delegate while loading the navigation
@@ -917,8 +917,23 @@ impl StackHost {
         {
             return;
         }
-        slide_bottom_bar(&self.nav, bottom_bar_hidden(&self.nav), false);
+        slide_bottom_bar(&self.nav, bottom_bar_hidden(&self.nav));
     }
+}
+
+/// A retained tab can be hidden at any enclosing container.
+fn ancestors_visible(view: &UIView) -> bool {
+    if view.isHidden() {
+        return false;
+    }
+    let mut ancestor = view.superview();
+    while let Some(view) = ancestor {
+        if view.isHidden() {
+            return false;
+        }
+        ancestor = view.superview();
+    }
+    true
 }
 
 /// Whether the bar belongs off screen: UIKit's own rule for
@@ -941,22 +956,31 @@ pub(crate) fn bottom_bar_hidden(nav: &UINavigationController) -> bool {
 /// Called from `navigationController:willShowViewController:animated:` — the
 /// hook UIKit runs for both pushes and pops, before the transition starts —
 /// which is where a `UITabBarController` moves its own bar from — and from
-/// `sync_bottom_bar` for a stack that did not move. Only the former settles
-/// the app's own `hidden` with the stack's word.
-pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool, from_transition: bool) {
+/// `sync_bottom_bar` for a stack that did not move. The app owns its
+/// independent `hidden` prop throughout both paths.
+pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool) {
     let Some(view) = nav.view() else {
         return;
     };
+    // NSH hides the stack's container (or a retained tab's ancestor), not
+    // UINavigationController's own view. Apply this guard to transitions as
+    // well as option syncs, so background stacks never control the shared bar.
+    if view.window().is_none() || !ancestors_visible(&view) {
+        return;
+    }
     let Some(parent) = view.superview() else {
         return;
     };
     // The bar is a component's view, nested in the container the component
     // system puts it in: look through the siblings' subtrees for it.
     fn collect_tab_bars(view: &UIView, depth: usize, out: &mut Vec<Retained<UIView>>) {
-        if depth == 0 {
+        if depth == 0 || view.isHidden() {
             return;
         }
         for sub in view.subviews().iter() {
+            if sub.isHidden() {
+                continue;
+            }
             // SAFETY: asking UIKit for the class of a subview.
             let is_bar: bool =
                 unsafe { msg_send![&*sub, isKindOfClass: objc2_ui_kit::UITabBar::class()] };
@@ -988,22 +1012,16 @@ pub(crate) fn slide_bottom_bar(nav: &UINavigationController, hiding: bool, from_
     // the next one whenever a screen below it changes size.
     let bars = Rc::new(bars);
     let apply = Rc::new(move || {
+        // A retained tab may have been hidden since the coordinator queued us.
+        if view.window().is_none() || !ancestors_visible(&view) {
+            return;
+        }
         for bar in bars.iter() {
-            // A push or a pop settles the app's `hidden` with the stack's; a
-            // sync that only re-read the options does not.
             // SAFETY: asking a view whether it is ours before messaging it.
-            if from_transition {
-                let ours: bool =
-                    unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
-                if ours {
-                    let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
-                }
-            } else {
-                let ours: bool =
-                    unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSyncBottomHidden:)] };
-                if ours {
-                    let _: () = unsafe { msg_send![&**bar, nshSyncBottomHidden: hiding] };
-                }
+            let ours: bool =
+                unsafe { msg_send![&**bar, respondsToSelector: sel!(nshSetBottomHidden:)] };
+            if ours {
+                let _: () = unsafe { msg_send![&**bar, nshSetBottomHidden: hiding] };
             }
         }
     });
