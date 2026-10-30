@@ -1258,7 +1258,63 @@ fn color_change_skips_layout_and_identical_texts_share_measurements() {
         first_measures,
         "no re-measure"
     );
-    assert_eq!(c.text_engine.layouts.get(), 4);
+    assert_eq!(
+        c.text_engine.layouts.get(),
+        3,
+        "recolored, not typeset: the glyphs kept their places"
+    );
+}
+
+/// The other half of a recolor: the layout stands, but the platform must
+/// still be told about the new colors. Dropping `laid_out` again — or letting
+/// the settled box skip the mount — leaves a price that never turns red.
+#[test]
+fn a_recolor_keeps_its_typeset_layout_and_still_mounts_the_new_colors() {
+    let mut c = core();
+    apply(
+        &mut c,
+        vec![
+            Op::Create {
+                id: 2,
+                tag: Tag::Text,
+            },
+            Op::CreateText {
+                id: 3,
+                text: "12.40".into(),
+            },
+            Op::Insert {
+                parent: 2,
+                child: 3,
+                before: None,
+            },
+            Op::Insert {
+                parent: ROOT_ID,
+                child: 2,
+                before: None,
+            },
+        ],
+    );
+    c.apply(class_op(2, "text-black")).unwrap();
+    let _ = c.commit().unwrap();
+    let typeset = c.text_engine.layouts.get();
+
+    c.apply(class_op(2, "text-white")).unwrap();
+    let batch = c.commit().unwrap();
+
+    assert_eq!(
+        c.text_engine.layouts.get(),
+        typeset,
+        "the same glyphs in the same places: nothing to typeset again"
+    );
+    let mounted = batch
+        .items
+        .iter()
+        .find_map(|i| match i {
+            MountItem::Text { id: 2, text, .. } => Some(text.clone()),
+            _ => None,
+        })
+        .expect("the new colors must reach the platform");
+    assert_eq!(mounted.spans[0].style.color, Color(0xffff_ffff));
 }
 
 #[test]

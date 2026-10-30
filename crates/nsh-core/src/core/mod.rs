@@ -828,6 +828,9 @@ struct TextContext<P> {
     laid_out: Option<LaidText>,
     /// New test metadata must be mounted even when the glyphs are unchanged.
     metadata_changed: bool,
+    /// New colors must be mounted even though the glyphs stay where they are.
+    /// Without it the kept `laid_out` looks settled and the mount is skipped.
+    decoration_changed: bool,
 }
 
 /// The final text can have fitted font sizes, so retain it with its layout.
@@ -848,6 +851,7 @@ impl<P> TextContext<P> {
             cache: None,
             laid_out: None,
             metadata_changed: false,
+            decoration_changed: false,
         }
     }
     /// Remount metadata in the same box, keeping any fitted font sizes.
@@ -5245,8 +5249,9 @@ impl<M: TextEngine> Core<M> {
         // Platform typesetting state embeds colors too: always rebuild it.
         cx.prepared = None;
         cx.min_content = None;
-        cx.laid_out = None;
         if !same_layout {
+            cx.laid_out = None;
+            cx.decoration_changed = false;
             cx.layout_hash = cx.alignments.layout_hash(&cx.text);
             cx.cache = None;
             // A text that measures as before leaves every layout standing:
@@ -5259,6 +5264,12 @@ impl<M: TextEngine> Core<M> {
                 self.layout.mark_dirty(layout);
                 self.needs_layout = true;
             }
+        } else {
+            // The glyphs keep their places, so the typeset layout stands: a
+            // price that turns red every frame costs a mount, not a typeset.
+            // The runs still carry the new colors, so the mount cannot be
+            // skipped and says so.
+            cx.decoration_changed = true;
         }
         true
     }
@@ -5996,7 +6007,7 @@ impl<M: TextEngine> Core<M> {
                     });
                     continue;
                 }
-                if matches!(&cx.laid_out, Some(l) if l.content == content) {
+                if matches!(&cx.laid_out, Some(l) if l.content == content) && !cx.decoration_changed {
                     continue;
                 }
                 let layout =
@@ -6042,7 +6053,7 @@ impl<M: TextEngine> Core<M> {
             let size = content.size;
             if let Some(min) = fit {
                 // Shrunk to fit: its own text, laid out on its own.
-                if matches!(&cx.laid_out, Some(l) if l.content == content) {
+                if matches!(&cx.laid_out, Some(l) if l.content == content) && !cx.decoration_changed {
                     continue;
                 }
                 let text = Arc::new(fitted(engine, &cx.text, &cx.alignments, size, min));
@@ -6073,8 +6084,10 @@ impl<M: TextEngine> Core<M> {
                 continue;
             }
             let text_layout = match &cx.laid_out {
-                Some(l) if l.content == content => continue,
-                // Only moved (padding, vertical alignment): the same layout.
+                // Settled: neither the box nor the colors changed.
+                Some(l) if l.content == content && !cx.decoration_changed => continue,
+                // Only moved (padding, vertical alignment), or only recolored:
+                // the same layout.
                 Some(l) if l.content.size == size => l.layout.clone(),
                 _ => {
                     let prepared = cx
@@ -6097,6 +6110,7 @@ impl<M: TextEngine> Core<M> {
                 text: cx.text.clone(),
             });
             cx.metadata_changed = false;
+            cx.decoration_changed = false;
             if !cx.text.attachments.is_empty() {
                 placements.push((key, text_layout.clone(), content));
             }
